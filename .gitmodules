@@ -10,3 +10,21 @@
 [submodule "external/MuseBridge"]
 	path = external/MuseBridge
 	url = https://github.com/Some1sm/MuseBridge.git
+[submodule "external/quota"]
+	path = external/quota
+	url = https://github.com/pinkpixel-dev/quota.git
+[submodule "external/clanker-usage"]
+	path = external/clanker-usage
+	url = https://github.com/wakamex/clanker-usage.git
+[submodule "external/llm-runway"]
+	path = external/llm-runway
+	url = https://github.com/200ok-ch/llm-runway.git
+[submodule "external/ccusage"]
+	path = external/ccusage
+	url = https://github.com/ryoppippi/ccusage.git
+[submodule "external/splunk-token-meter"]
+	path = external/splunk-token-meter
+	url = https://github.com/splunk/token-meter.git
+[submodule "external/tokenmeter"]
+	path = external/tokenmeter
+	url = https://github.com/serkankorkut/tokenmeter.git
