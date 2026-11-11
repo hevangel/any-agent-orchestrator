@@ -1,0 +1,12 @@
+[submodule "external/orca"]
+	path = external/orca
+	url = https://github.com/stablyai/orca.git
+[submodule "external/mcp-web-llm"]
+	path = external/mcp-web-llm
+	url = https://github.com/HGD-coder/mcp-web-llm.git
+[submodule "external/browser-harness"]
+	path = external/browser-harness
+	url = https://github.com/browser-use/browser-harness.git
+[submodule "external/MuseBridge"]
+	path = external/MuseBridge
+	url = https://github.com/Some1sm/MuseBridge.git
