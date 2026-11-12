@@ -24,7 +24,17 @@ from orchestrator.machines import _run
 # composer: selector hints in priority order (spec/web_interfaces.md); chat: whether a prompt
 # test is meaningful (remote Codex / Claude Code create cloud tasks, so they are only login-checked).
 TARGETS = {
-    "chatgpt": {"url": "https://chatgpt.com/", "composer": ["#prompt-textarea", "div[contenteditable='true']"], "chat": True},
+    # Studied 2026-11-11: the composer is a contenteditable labelled "Ask ChatGPT"; Enter sends and the
+    # URL becomes /c/<id>. Each turn sits in [data-talvt-turn-state] ("complete" once done); the reply
+    # is the last [data-markdown-text-style=assistant-message].
+    "chatgpt": {"url": "https://chatgpt.com/",
+                "composer": ["[contenteditable='true'][aria-label='Ask ChatGPT']", "#prompt-textarea",
+                             "div[contenteditable='true']"],
+                "user": "[data-user-message-bubble='true']",
+                "assistant": "[data-markdown-text-style='assistant-message']",
+                "busy": ["[data-talvt-turn-state]:not([data-talvt-turn-state='complete'])",
+                         "button[aria-label^='Stop']", "[data-testid='stop-button']"],
+                "chat": True},
     # Studied 2026-11: Enter sends and the URL becomes /chat/<id>; the reply is the last
     # assistant-message, data-is-streaming="true" (plus a "Stop response" button) while it is written.
     "claude": {"url": "https://claude.ai/new",
@@ -44,8 +54,11 @@ TARGETS = {
     "muse": {"url": "https://muse.ai/", "composer": ["textarea[placeholder='Message']", "textarea",
                                                      "div[contenteditable='true']"], "chat": True},
     "zai": {"url": "https://chat.z.ai/", "composer": ["textarea", "div[contenteditable='true']"], "chat": True},
-    "codex-cloud": {"url": "https://chatgpt.com/codex", "composer": ["#prompt-textarea", "textarea",
-                                                                    "div[contenteditable='true']"], "chat": False},
+    # Codex is a mode of chatgpt.com (web_codex.py, `aao codex`); same account, so it shares the
+    # chatgpt profile and browser session. Here only the login check.
+    "codex-cloud": {"url": "https://chatgpt.com/", "profile": "chatgpt",
+                    "composer": ["[contenteditable='true'][aria-label='Ask ChatGPT']", "[contenteditable='true']"],
+                    "chat": False},
     # sessions are driven by web_code.py (`aao code`); here only the login check. Same site and
     # account as "claude", so it shares that profile and browser session.
     "claude-code-web": {"url": "https://claude.ai/code", "profile": "claude",
