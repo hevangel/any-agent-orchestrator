@@ -9,6 +9,9 @@
     uv run aao chats claude new-group <name> [--chat <chat>]
     uv run aao chats claude delete-group <name> --yes
 
+    uv run aao chats chatgpt list|projects|move <chat> <project>|unproject|new-project|delete-project
+                                                    # ChatGPT: groups are projects (web_chats_chatgpt.py)
+
 <chat> is a chat id, a chat URL or an exact title (looked up in the sidebar, then in search).
 Every action is a fixed sequence of selector checks (RECIPES, studied by hand; see
 spec/web_interfaces.md) and is verified by reading the sidebar again afterwards.
@@ -17,7 +20,7 @@ spec/web_interfaces.md) and is verified by reading the sidebar again afterwards.
 import json
 import re
 
-from orchestrator import web
+from orchestrator import web, web_chats_chatgpt
 
 # claude.ai, studied 2026-11-12. The sidebar is a flat list of rows keyed by data-row-key:
 # "label:<id>" starts a section (pinned, recents, custom-cg-<uuid> for a group) and the
@@ -77,6 +80,8 @@ RECIPES = {
     "claude-code-web": {**_CLAUDE, "row": "aside [data-kind=code] [data-row-key]", "itemType": "code",
                         "idPattern": SESSION_ID, "chatUrl": "https://claude.ai/code/{id}",
                         "home": "/code", "path": r"^/code", "searchResolve": False},
+    # chatgpt.com: groups are projects; its own script (web_chats_chatgpt.py)
+    "chatgpt": web_chats_chatgpt.RECIPE,
 }
 
 SCRIPT = r"""async page => {
@@ -427,8 +432,10 @@ def _recipe(target):
 
 def run(target, op, timeout_s=120, **args):
     """Run one chat-list operation in the target's already open session (see web.open_target)."""
-    payload = {"recipe": _recipe(target), "op": op, "loginUrl": web.LOGIN_URL, **args}
-    return web.run_script(target, SCRIPT.replace("__CFG__", json.dumps(payload)), timeout_s)
+    recipe = _recipe(target)
+    payload = {"recipe": recipe, "op": op, "loginUrl": web.LOGIN_URL, **args}
+    script = web_chats_chatgpt.SCRIPT if recipe.get("engine") == "chatgpt" else SCRIPT
+    return web.run_script(target, script.replace("__CFG__", json.dumps(payload)), timeout_s)
 
 
 def resolve(target, chat):

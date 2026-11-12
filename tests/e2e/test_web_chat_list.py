@@ -1,8 +1,8 @@
 """Chat-list control (list, search, pin, groups) on each studied web target.
 
 The test starts its own chat (one prompt), then pins/unpins it, creates a throwaway group
-`aao-e2e-<n>`, moves the chat in and out, and deletes the group again. Nothing else in the
-account is touched. The chat itself stays in Recents.
+`aao-e2e-<n>` (a section on Claude, a project on ChatGPT), moves the chat in and out, and deletes
+the group again. Nothing else in the account is touched. The chat itself stays in Recents.
 """
 
 import json
@@ -18,6 +18,12 @@ pytestmark = pytest.mark.e2e
 
 def _section_of(sections, chat_id):
     return next((s for s in sections if any(c["id"] == chat_id for c in s["items"])), {})
+
+
+def _groups_of(sections, chat_id):
+    """Groups holding the chat. ChatGPT also lists a project's chat under Recents, and shows a
+    project's chats only when it is expanded, so membership is read with list --group."""
+    return [s["name"] for s in sections if s["kind"] == "group" and any(c["id"] == chat_id for c in s["items"])]
 
 
 def test_web_chat_list(web_target, e2e_timeout, evidence):
@@ -58,9 +64,9 @@ def test_web_chat_list(web_target, e2e_timeout, evidence):
 
         assert run("new-group", group=group)["ok"]
         assert run("move", chat=chat_id, group=group)["ok"]
-        assert _section_of(run("list")["sections"], chat_id).get("name") == group
+        assert _groups_of(run("list", group=group)["sections"], chat_id) == [group]
         assert run("ungroup", chat=chat_id)["ok"]
-        assert _section_of(run("list")["sections"], chat_id).get("kind") == "recents"
+        assert _groups_of(run("list", group=group)["sections"], chat_id) == []
         assert run("delete-group", group=group)["ok"]
         assert group not in [s["name"] for s in run("list")["sections"]]
     finally:

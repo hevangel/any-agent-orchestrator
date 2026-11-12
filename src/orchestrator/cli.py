@@ -105,20 +105,26 @@ def cmd_web(args):
     return 1 if failed else 0
 
 
-# Claude calls groups "sections" (chats and Code tab alike); both names work on the command line.
+# Claude calls groups "sections" (chats and Code tab alike), ChatGPT calls them "projects"; every
+# name works on the command line.
 SECTION_ALIASES = {"sections": "groups", "new-section": "new-group", "delete-section": "delete-group",
                    "unsection": "ungroup"}
+PROJECT_ALIASES = {"projects": "groups", "new-project": "new-group", "delete-project": "delete-group",
+                   "unproject": "ungroup"}
 
 
 def cmd_chats(args):
     from orchestrator import web_chats
 
-    op = SECTION_ALIASES.get(args.op, args.op)
+    op = SECTION_ALIASES.get(args.op) or PROJECT_ALIASES.get(args.op) or args.op
+    word = web_chats.RECIPES.get(args.target, {}).get("groupWord", "section")
     if op == "delete-group" and not args.yes:
-        print(f"  deleting section {args.name!r} needs --yes (its chats go back to Recents)")
+        what = ("(refused while it has chats: ChatGPT deletes a project's chats with it)" if word == "project"
+                else "(its chats go back to Recents)")
+        print(f"  deleting {word} {args.name!r} needs --yes {what}")
         return 1
     kwargs = {
-        "list": {}, "groups": {},
+        "list": {"group": getattr(args, "group", None)}, "groups": {},
         "search": {"query": getattr(args, "query", None), "kind": getattr(args, "kind", None)},
         "pin": {"chat": getattr(args, "chat", None)}, "unpin": {"chat": getattr(args, "chat", None)},
         "move": {"chat": getattr(args, "chat", None), "group": getattr(args, "group", None),
@@ -138,13 +144,14 @@ def cmd_chats(args):
                 continue
             if args.group and s["name"] != args.group:
                 continue
-            flag = " (collapsed)" if s["collapsed"] else ""
-            kind = "section" if s["kind"] == "group" else s["kind"]
+            flag = "".join(f" ({x})" for x, on in (("pinned", s.get("pinned")), ("collapsed", s["collapsed"]),
+                                                    ("more not shown", s.get("more"))) if on)
+            kind = word if s["kind"] == "group" else s["kind"]
             print(f"  [{kind}] {s['name']}  {len(s['items'])} item(s){flag}")
             if op == "list":
                 for c in s["items"]:
                     extra = " · ".join(x for x in (c.get("status"), c.get("detail")) if x)
-                    print(f"      {c['title'][:60]:60} {c['url']}  {extra}".rstrip())
+                    print(f"      {c['title'][:60]:60} {c['url']}  {extra[:90]}".rstrip())
     elif op == "search" and result.get("results") is not None:
         for c in result["results"]:
             print(f"  {c['type'] or '':13} {c['title'][:60]:60} {c['url'] or c['id']}")
@@ -152,12 +159,104 @@ def cmd_chats(args):
             print("  no results")
     else:
         chat = result.get("chat") or {}
-        what = " ".join(x for x in (chat.get("title") or chat.get("id"), result.get("group") and f"-> {result['group']}") if x)
+        arrow = "from" if op == "ungroup" else "->"
+        what = " ".join(x for x in (chat.get("title") or chat.get("id"), result.get("group") and f"{arrow} {result['group']}") if x)
         state = "OK " if result.get("ok") else "NO "
         note = result.get("reason") or result.get("error") or ("done" if result.get("changed") else "")
-        print(f"  {op:12} {state} {what}  {note}")
+        print(f"  {args.op:12} {state} {what}  {note}")
+        if result.get("items"):
+            print(f"      {result.get('menu')} menu: {', '.join(result['items'])}")
         for m in result.get("matches") or []:
             print(f"      {m['id']}  {m['title']}")
+    return 0 if result.get("ok") else 1
+
+
+def _print_question(q, indent="    "):
+    """One step of a Codex question (request input): what it asks and what can be pressed."""
+    print(f"{indent}step {q['step']}/{q['steps']}: {q.get('question') or q['title']}" + ("  [HUMAN: secrets needed]" if q.get("humanOnly") else ""))
+    if q.get("description"):
+        print(f"{indent}  {q['description'][:300]}")
+    for i in q.get("items") or []:
+        print(f"{indent}  {i['label']}: {i['value'][:120]}")
+    for f in q.get("fields") or []:
+        state = "filled" if f["filled"] else "EMPTY"
+        print(f"{indent}  {f['kind']} {f['name']}: {state}" + (f"  ({f['scope']})" if f.get("scope") else ""))
+    for o in q.get("options") or []:
+        print(f"{indent}  option{' [x]' if o['selected'] else ''}: {o['label']}")
+    if q.get("freeText"):
+        print(f"{indent}  free text: {q['freeText']['label']}")
+    acts = ", ".join(a["label"] + ("" if a["enabled"] else " (disabled)") for a in q.get("actions") or [])
+    print(f"{indent}  actions: {acts}, Dismiss")
+
+
+def cmd_codex(args):
+    from orchestrator import web_codex
+
+    kw = {"timeout_s": args.timeout}
+    if args.op in ("read", "attention", "answer", "send", "wait", "archive"):
+        kw["thread"] = getattr(args, "thread", None)
+    if args.op == "answer":
+        kw.update(choice=args.choice, text=args.text, noSend=args.no_send, step=args.step)
+    if args.op in ("new", "send"):
+        kw.update(prompt=args.prompt, wait=args.wait)
+    if args.op == "new":
+        kw.update(env=args.env, workIn=args.work_in, computer=args.computer, permission=args.permission,
+                  model=args.model, effort=args.effort)
+    result = web_codex.session(args.op, **kw)
+    if args.json:
+        print(json.dumps(result, indent=1))
+        return 0 if result.get("ok") else 1
+    if not result.get("ok"):
+        print(f"  NO {result.get('reason') or result.get('error')}")
+        for m in result.get("matches") or []:
+            print(f"      {m['id']}  {m['title']}")
+        if result.get("choices"):
+            print(f"      choices: {', '.join(result['choices'])}")
+        if result.get("question"):
+            _print_question(result["question"])
+    for t in result.get("threads") or []:
+        if args.op == "threads":
+            print(f"  {t['title'][:48]:48} {t['runsOn'] or '?':8} {t['url']}")
+            continue
+        print(f"  {t['title']}  {t['url']}" + (f"  environment needs attention: {t['environmentAttention']}" if t.get("environmentAttention") else ""))
+        for q in (t.get("attention") or {}).get("steps") or []:
+            _print_question(q)
+    if args.op == "attention" and result.get("ok") and not result.get("threads"):
+        print(f"  nothing waiting ({result.get('checked')} thread(s) checked)")
+    if args.op == "archive" and result.get("ok"):
+        print(f"  archived {result.get('title') or result['id']}")
+    if args.op in ("read", "new", "send", "wait") and result.get("id"):
+        state = result.get("status") or ("working" if result.get("working") else "idle")
+        print(f"  {result.get('title') or ''}  [{state}]  {result.get('url')}")
+        if result.get("settings"):
+            print("    " + "  ".join(f"{k}: {v}" for k, v in result["settings"].items() if v))
+        e = result.get("edits")
+        work = " ".join(x for x in (result.get("worked"), e and f"{e['summary']} +{e.get('added') or 0} -{e.get('removed') or 0}") if x)
+        if work:
+            print(f"    last turn: {work}")
+        for f in (e or {}).get("files") or []:
+            print(f"      {f['path']}  +{f['added']} -{f['removed']}")
+        if e and e.get("notListed"):
+            print(f"      ... {e['notListed']} more file(s) not listed")
+        for pr in result.get("pullRequests") or []:
+            print(f"    PR {pr}")
+        for line in result.get("actions") or []:
+            print(f"    · {line[:160]}")
+        if result.get("turns") == 0:
+            print("    (the page shows no messages for this thread)")
+        if result.get("environmentAttention"):
+            print(f"    environment needs attention: {result['environmentAttention']}")
+        print(f"    last prompt: {(result.get('lastPrompt') or '')[:200]}")
+        print(f"    reply: {(result.get('reply') or '')[:1500]}")
+        for q in (result.get("attention") or {}).get("steps") or []:
+            _print_question(q)
+    if args.op == "answer" and result.get("ok"):
+        what = f"answered {result['answered']!r}" if result.get("answered") else f"pressed {result.get('pressed')}"
+        print(f"  {what} on step {result.get('step')} ({result.get('title')})")
+        if result.get("next"):
+            _print_question(result["next"])
+        else:
+            print("    no question open any more")
     return 0 if result.get("ok") else 1
 
 
@@ -302,32 +401,64 @@ def main(argv=None):
     p.add_argument("--chat", help="ask: continue this chat (id, URL or exact title) instead of a new one")
     p.set_defaults(func=cmd_web)
 
-    p = sub.add_parser("chats", help="chat/session list of a web app: list, search, pin, sections (groups)")
-    p.add_argument("target", help="claude (chats) or claude-code-web (Code sessions)")
+    p = sub.add_parser("chats", help="chat/session list of a web app: list, search, pin, sections/projects (groups)")
+    p.add_argument("target", help="claude (chats), claude-code-web (Code sessions) or chatgpt (groups are projects)")
     p.add_argument("--json", action="store_true")
     ops = p.add_subparsers(dest="op", required=True)
-    alias = {v: k for k, v in SECTION_ALIASES.items()}  # "groups" -> also accepted as "sections"
+    alias = {v: [k, next(p for p, g in PROJECT_ALIASES.items() if g == v)] for k, v in SECTION_ALIASES.items()}
     o = ops.add_parser("list", help="sidebar sections (Pinned, your sections, Recents) and their items")
-    o.add_argument("--group", "--section", dest="group", help="only this section")
-    o = ops.add_parser("groups", aliases=[alias["groups"]], help="list the sections (groups)")
+    o.add_argument("--group", "--section", "--project", dest="group", help="only this section (a ChatGPT project: all its chats)")
+    o = ops.add_parser("groups", aliases=alias["groups"], help="list the sections / projects (groups)")
     o.set_defaults(group=None)
     o = ops.add_parser("search", help="search chats (and artifacts, sessions, projects)")
     o.add_argument("query")
     o.add_argument("--kind", help="search filter tab, e.g. Code, Projects, Artifacts")
     for name in ("pin", "unpin"):
         ops.add_parser(name).add_argument("chat", help="id, URL or exact title")
-    ops.add_parser("ungroup", aliases=[alias["ungroup"]], help="take it out of its section").add_argument("chat")
+    ops.add_parser("ungroup", aliases=alias["ungroup"], help="take it out of its section").add_argument("chat")
     o = ops.add_parser("move", help="move a chat or session into a section")
     o.add_argument("chat")
     o.add_argument("group", metavar="section")
     o.add_argument("--create", action="store_true", help="create the section if it does not exist")
-    o = ops.add_parser("new-group", aliases=[alias["new-group"]], help="create an empty section, or one holding --chat")
+    o = ops.add_parser("new-group", aliases=alias["new-group"], help="create an empty section, or one holding --chat")
     o.add_argument("name")
     o.add_argument("--chat")
-    o = ops.add_parser("delete-group", aliases=[alias["delete-group"]], help="delete a section; its items return to Recents")
+    o = ops.add_parser("delete-group", aliases=alias["delete-group"], help="delete a section; its items return to Recents")
     o.add_argument("name")
     o.add_argument("--yes", action="store_true")
     p.set_defaults(func=cmd_chats)
+
+    p = sub.add_parser("codex", help="Codex on chatgpt.com: threads, read, questions waiting for an answer")
+    p.add_argument("--json", action="store_true")
+    p.add_argument("--timeout", type=int, default=300)
+    ops = p.add_subparsers(dest="op", required=True)
+    ops.add_parser("threads", help="sidebar threads and where they run")
+    ops.add_parser("read", help="last prompt, reply, work time, file changes and open questions").add_argument("thread")
+    o = ops.add_parser("attention", help="questions waiting for an answer (every step), one thread or all")
+    o.add_argument("thread", nargs="?")
+    o = ops.add_parser("answer", help="answer a thread's open question: an option, a button, or free text (never a secret)")
+    o.add_argument("thread")
+    g = o.add_mutually_exclusive_group(required=True)
+    g.add_argument("--choice", help="option or button label, e.g. red, Next, Skip, Finish review, Dismiss")
+    g.add_argument("--text", help="free-text answer (only where the question offers 'write your own response')")
+    o.add_argument("--no-send", action="store_true", help="with an option: select it but do not press Send")
+    o.add_argument("--step", type=int, help="step to answer (default: the one shown)")
+    o = ops.add_parser("new", help="start a thread (only from the new-thread page)")
+    o.add_argument("--prompt", required=True)
+    o.add_argument("--env", help="environment as listed, e.g. 'Default environment', 'ai_engineer'")
+    o.add_argument("--work-in", choices=["Cloud", "Remote"])
+    o.add_argument("--computer", help="with --work-in Remote: the computer to run on")
+    o.add_argument("--permission", choices=["Ask for approval", "Approve for me", "Full access"])
+    o.add_argument("--model", help="e.g. 'GPT-6.1 Sol'")
+    o.add_argument("--effort", help="e.g. Light, Medium, High")
+    o.add_argument("--wait", action="store_true", help="wait for the turn to end and print the reply")
+    o = ops.add_parser("send", help="follow up in a thread")
+    o.add_argument("thread")
+    o.add_argument("--prompt", required=True)
+    o.add_argument("--wait", action="store_true")
+    ops.add_parser("wait", help="wait until the thread's turn ends or a question opens").add_argument("thread")
+    ops.add_parser("archive", help="archive a thread").add_argument("thread")
+    p.set_defaults(func=cmd_codex)
 
     p = sub.add_parser("code", help="Claude Code on the web: list, read, prompt and start sessions")
     p.add_argument("--json", action="store_true")
