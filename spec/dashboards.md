@@ -41,3 +41,7 @@ Costs are computed at read time, so fixing a price re-prices history without res
 `data/free_tokens.json` (schema `free-tokens-v1`) lists free tiers, credits, promos and free model routes the agents in `agents.json` can use. Each source: `id`, `provider`, `offer`, `kind` (free-tier, daily, weekly, monthly, one-time, trial, promo, referral, credits), `amount` (as the provider states it), `agent_ids`, `access` (cli/web/api/ide/desktop), `url` (official, https), `expires`, `status` (active/expired/unverified/ended), `verified_at`, optional `how_to_claim` and `notes`. The dashboard flags the list as stale after 36 h.
 
 Free offers need judgment (reading announcements, spotting expiry), so a daily LLM agent maintains this file: [prompts/daily_data_update.md](../prompts/daily_data_update.md).
+
+## API price table controls
+
+Click a column heading to sort ascending; click again to sort descending. Price columns sort numerically, with missing values last in either direction. The funnel button beside each heading opens a searchable checklist of that column's values, including blanks. Select values and click Apply; filters on different columns combine. Clear filter resets one column, and Clear all filters resets every column. Sorting and applied filters remain in effect during automatic refreshes for the current page session.
