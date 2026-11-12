@@ -1,0 +1,83 @@
+# Run every supported CLI coding agent in one container, signed in with the host's credentials.
+#
+#   cp .env.example .env              # optional: AGENT_TAGS, HOST_HOME, WORKSPACE
+#   docker compose build
+#   docker compose run --rm agents    # shell with the workspace at /workspace
+#   docker compose run --rm agents claude
+#   docker compose run --rm --service-ports agents uv run aao serve --host 0.0.0.0   # dashboard on 127.0.0.1:8765
+#     (inside the container it sees the mounted agents' logs and quotas; herdr machines and the
+#      SSH probe need the host's herdr session and SSH keys, so run the dashboard on the host for those)
+#   docker compose build --no-cache   # refresh agents to their latest versions (durable)
+#   docker compose run --rm agents update_agents.sh   # one-off update; lost when the container exits
+#
+# Credential directories are bind-mounted read-write because agents refresh OAuth tokens in place.
+# A host directory that does not exist is created (empty) by Docker; that agent then asks you to log in.
+# Tokens kept in an OS credential store instead of files (macOS Keychain: Claude Code; Windows
+# Credential Manager / keyring: gh, some others) are not visible to the container: set the token
+# environment variables in .env for those, or log in once inside the container (the login is written
+# back to the mounted host directory). herdr is not mounted: it stores no credentials.
+name: any-agent-orchestrator
+
+services:
+  agents:
+    build:
+      context: .
+      args:
+        # Empty installs every agent. Set AGENT_TAGS=core,byok (etc.) in .env to limit it.
+        AGENT_TAGS: ${AGENT_TAGS:-}
+    image: any-agent-orchestrator:latest
+    working_dir: /workspace
+    stdin_open: true
+    tty: true
+    init: true   # reap orphaned agent subprocesses (the agent would otherwise run as PID 1)
+    # Chromium for playwright-cli needs more shared memory than Docker's 64 MB default
+    shm_size: 1gb
+    ports:
+      - "127.0.0.1:8765:8765"   # aao dashboard (only with --service-ports)
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Optional token-based logins (macOS Keychain users, CI). Empty values are ignored by the CLIs.
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+      GH_TOKEN: ${GH_TOKEN:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}   # OpenCode / Kilo / Hermes OpenRouter models
+      PLAYWRIGHT_MCP_BROWSER: chromium
+    volumes:
+      # Orchestrated workspace (the "main repo" with the GitHub Project and its submodules)
+      - ${WORKSPACE:-.}:/workspace
+
+      # ---- Agent credentials and settings from the host ----
+      - ${HOST_HOME:-${HOME:-${USERPROFILE}}}/.claude:/root/.claude              # Claude Code
+      - ${HOST_HOME:-${HOME:-${USERPROFILE}}}/.codex:/root/.codex                # OpenAI Codex CLI (auth.json)
+      - ${HOST_HOME:-${HOME:-${USERPROFILE}}}/.cursor:/root/.cursor              # Cursor Agent CLI (settings)
+      - ${HOST_HOME:-${HOME:-${USERPROFILE}}}/.config/cursor:/root/.config/cursor  # Cursor Agent CLI (Linux auth.json)
+      - ${HOST_HOME:-${HOME:-${USERPROFILE}}}/.copilot:/root/.copilot            # GitHub Copilot CLI
+      - ${HOST_HOME:-${HOME:-${USERPROFILE}}}/.kiro:/root/.kiro                  # Kiro CLI
+      - ${HOST_HOME:-${HOME:-${USERPROFILE}}}/.gemini:/root/.gemini              # Antigravity / Gemini
+      - ${HOST_HOME:-${HOME:-${USERPROFILE}}}/.zai:/root/.zai                    # ZCode CLI (Z.ai auth.json)
+      # ~/.hermes is NOT mounted: Hermes keeps its program, Python and dependencies there, so a host
+      # mount hides the image's install. Give Hermes provider keys through .env (env_file) instead.
+      - ${HOST_HOME:-${HOME:-${USERPROFILE}}}/.pi:/root/.pi                      # Pi (path unverified)
+      - ${HOST_HOME:-${HOME:-${USERPROFILE}}}/.config/muse:/root/.config/muse    # Muse Code (auth.json)
+      # OpenCode and Kilo keep SQLite databases in their data directory, and SQLite fails ("disk I/O
+      # error") on a Windows bind mount. Their data lives in named volumes; the entrypoint links the
+      # host's OpenCode auth.json (mounted under /host-creds) into the volume, so logins stay shared.
+      - opencode-data:/root/.local/share/opencode
+      - kilo-data:/root/.local/share/kilo
+      - ${HOST_HOME:-${HOME:-${USERPROFILE}}}/.local/share/opencode:/host-creds/opencode
+      # Their last-used model (model.json) decides what `run` uses; linked from the host too
+      - ${HOST_HOME:-${HOME:-${USERPROFILE}}}/.local/state/opencode:/host-creds/opencode-state
+      - ${HOST_HOME:-${HOME:-${USERPROFILE}}}/.local/state/kilo:/host-creds/kilo-state
+      # ~/.config/opencode and ~/.config/kilo are NOT mounted: they hold node_modules built for the host OS.
+      - ${HOST_HOME:-${HOME:-${USERPROFILE}}}/.config/gh:/root/.config/gh        # GitHub CLI (Project orchestration)
+      - ${HOST_HOME:-${HOME:-${USERPROFILE}}}/.gitconfig:/root/.gitconfig:ro     # must exist on the host (a missing file becomes a directory)
+
+      # Persistent playwright-cli browser profiles (web chat logins survive container restarts)
+      - playwright-profiles:/root/.playwright-cli
+
+volumes:
+  playwright-profiles:
+  opencode-data:
+  kilo-data:

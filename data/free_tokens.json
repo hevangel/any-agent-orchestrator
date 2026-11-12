@@ -1,0 +1,7 @@
+{
+ "schema": "free-tokens-v1",
+ "updated_at": null,
+ "updated_by": null,
+ "notes": "Free token, credit and free-tier offers usable by the agents in agents.json. Maintained daily by an agent following prompts/daily_data_update.md; every entry needs a source URL and a verification date. Validate with: uv run aao free-tokens validate",
+ "sources": []
+}

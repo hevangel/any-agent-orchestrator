@@ -218,3 +218,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Orchestrator scratch and browser profiles
+temp/
+.playwright-cli/
+state/
+
+# Test results and evidence (transcripts, screenshots)
+tests/result/

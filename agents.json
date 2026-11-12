@@ -1,0 +1,481 @@
+{
+    "agents": [
+        {
+            "id": "claude",
+            "name": "Claude Code",
+            "binary": "claude",
+            "tags": [
+                "core"
+            ],
+            "install": {
+                "unix": "curl -fsSL https://claude.ai/install.sh | bash",
+                "windows": "irm https://claude.ai/install.ps1 | iex"
+            },
+            "update": {
+                "unix": "claude update",
+                "windows": "claude update"
+            },
+            "headless": [
+                "claude",
+                "-p",
+                "{prompt}"
+            ],
+            "headless_verified": true,
+            "herdr_kind": "claude",
+            "account": {
+                "type": "env",
+                "var": "CLAUDE_CONFIG_DIR",
+                "default": "~/.claude"
+            },
+            "permission": {
+                "auto": [
+                    "--permission-mode",
+                    "auto"
+                ],
+                "yolo": [
+                    "--dangerously-skip-permissions"
+                ]
+            },
+            "startup_forms": [
+                {
+                    "name": "folder-trust",
+                    "match": "Yes, I trust this folder",
+                    "keys": [
+                        "down",
+                        "enter"
+                    ],
+                    "verified": true
+                },
+                {
+                    "name": "bypass-permissions-consent",
+                    "match": "Yes, I accept",
+                    "keys": [
+                        "down",
+                        "enter"
+                    ],
+                    "verified": false
+                }
+            ]
+        },
+        {
+            "id": "codex",
+            "name": "OpenAI Codex CLI",
+            "binary": "codex",
+            "tags": [
+                "core"
+            ],
+            "install": {
+                "unix": "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
+                "windows": "irm https://chatgpt.com/codex/install.ps1 | iex"
+            },
+            "update": {
+                "unix": "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
+                "windows": "$previous = $env:CODEX_NON_INTERACTIVE; try { $env:CODEX_NON_INTERACTIVE = '1'; irm https://chatgpt.com/codex/install.ps1 | iex } finally { $env:CODEX_NON_INTERACTIVE = $previous }"
+            },
+            "headless": [
+                "codex",
+                "exec",
+                "--skip-git-repo-check",
+                "{prompt}"
+            ],
+            "headless_verified": true,
+            "herdr_kind": "codex",
+            "account": {
+                "type": "env",
+                "var": "CODEX_HOME",
+                "default": "~/.codex"
+            },
+            "permission": {
+                "auto": [
+                    "--approve-for-me"
+                ],
+                "yolo": [
+                    "--dangerously-bypass-approvals-and-sandbox"
+                ]
+            },
+            "startup_forms": [
+                {
+                    "name": "skip-update",
+                    "match": "Update available",
+                    "keys": [
+                        "esc"
+                    ],
+                    "verified": true
+                },
+                {
+                    "name": "folder-trust",
+                    "match": "trust the contents of this directory",
+                    "keys": [
+                        "enter"
+                    ],
+                    "verified": false
+                }
+            ]
+        },
+        {
+            "id": "cursor",
+            "name": "Cursor Agent CLI",
+            "binary": "agent",
+            "tags": [
+                "core"
+            ],
+            "install": {
+                "unix": "curl -fsSL https://cursor.com/install | bash",
+                "windows": "irm \"https://cursor.com/install?win32=true\" | iex"
+            },
+            "update": {
+                "unix": "agent update",
+                "windows": "agent update"
+            },
+            "headless": [
+                "agent",
+                "-p",
+                "--output-format",
+                "text",
+                "{prompt}"
+            ],
+            "headless_verified": true,
+            "herdr_kind": "cursor",
+            "account": {
+                "type": "env",
+                "var": "CURSOR_API_KEY",
+                "value_is_secret": true,
+                "note": "Cursor has no config-dir switch; a second account uses its API key"
+            },
+            "permission": {
+                "auto": [
+                    "--auto-review",
+                    "--trust"
+                ],
+                "yolo": [
+                    "--yolo",
+                    "--trust"
+                ]
+            },
+            "startup_forms": []
+        },
+        {
+            "id": "copilot",
+            "name": "GitHub Copilot CLI",
+            "binary": "copilot",
+            "tags": [
+                "tier2"
+            ],
+            "install": {
+                "unix": "npm install -g @github/copilot",
+                "windows": "npm install -g @github/copilot"
+            },
+            "update": {
+                "unix": "npm update -g @github/copilot",
+                "windows": "npm update -g @github/copilot"
+            },
+            "headless": [
+                "copilot",
+                "-p",
+                "{prompt}"
+            ],
+            "headless_verified": true,
+            "herdr_kind": "copilot",
+            "account": {
+                "type": "env",
+                "var": "COPILOT_HOME",
+                "default": "~/.copilot",
+                "verified": false
+            },
+            "permission": {
+                "auto": [
+                    "--allow-all-tools",
+                    "--trust-folder"
+                ],
+                "yolo": [
+                    "--yolo",
+                    "--trust-folder"
+                ]
+            },
+            "startup_forms": []
+        },
+        {
+            "id": "kiro",
+            "name": "Kiro CLI",
+            "binary": "kiro-cli",
+            "tags": [
+                "tier2"
+            ],
+            "install": {
+                "unix": "curl -fsSL https://cli.kiro.dev/install | bash",
+                "windows": "irm https://cli.kiro.dev/install.ps1 | iex"
+            },
+            "update": {
+                "unix": "kiro-cli update",
+                "windows": "kiro-cli update"
+            },
+            "headless": [
+                "kiro-cli",
+                "chat",
+                "--no-interactive",
+                "{prompt}"
+            ],
+            "headless_verified": true,
+            "herdr_kind": "kiro",
+            "account": null,
+            "permission": {
+                "auto": [
+                    "--trust-workspace"
+                ],
+                "yolo": [
+                    "--trust-all-tools",
+                    "--trust-workspace"
+                ]
+            },
+            "startup_forms": []
+        },
+        {
+            "id": "antigravity",
+            "name": "Google Antigravity CLI",
+            "binary": "agy",
+            "tags": [
+                "tier2"
+            ],
+            "install": {
+                "unix": "curl -fsSL https://antigravity.google/cli/install.sh | bash",
+                "windows": "irm https://antigravity.google/cli/install.ps1 | iex"
+            },
+            "update": {
+                "unix": "agy update",
+                "windows": "agy update"
+            },
+            "headless": [
+                "agy",
+                "-p",
+                "{prompt}"
+            ],
+            "headless_verified": true,
+            "herdr_kind": "agy",
+            "account": null,
+            "permission": {
+                "auto": [
+                    "--mode",
+                    "auto"
+                ],
+                "yolo": [
+                    "--dangerously-skip-permissions"
+                ]
+            },
+            "startup_forms": []
+        },
+        {
+            "id": "zcode",
+            "name": "ZCode CLI",
+            "binary": "zcode",
+            "tags": [
+                "tier2",
+                "free-tokens"
+            ],
+            "install": {
+                "unix": "npm install -g @staticpayload/zai-code",
+                "windows": "npm install -g @staticpayload/zai-code"
+            },
+            "update": {
+                "unix": "npm update -g @staticpayload/zai-code",
+                "windows": "npm update -g @staticpayload/zai-code"
+            },
+            "headless": [
+                "zcode",
+                "run",
+                "{prompt}"
+            ],
+            "headless_verified": true,
+            "herdr_kind": null,
+            "account": {
+                "type": "env",
+                "var": "ZAI_API_KEY",
+                "value_is_secret": true,
+                "verified": false
+            }
+        },
+        {
+            "id": "pi",
+            "name": "Pi CLI",
+            "binary": "pi",
+            "tags": [
+                "byok"
+            ],
+            "install": {
+                "unix": "curl -fsSL https://pi.dev/install.sh | sh",
+                "windows": "npm install -g --ignore-scripts @earendil-works/pi-coding-agent"
+            },
+            "update": {
+                "unix": "pi update --self",
+                "windows": "pi update --self"
+            },
+            "headless": [
+                "pi",
+                "-p",
+                "{prompt}"
+            ],
+            "headless_verified": false,
+            "herdr_kind": "pi",
+            "account": null
+        },
+        {
+            "id": "hermes",
+            "name": "Hermes Agent",
+            "binary": "hermes",
+            "tags": [
+                "byok"
+            ],
+            "install": {
+                "unix": "curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash",
+                "windows": "iex (irm \"https://hermes-agent.nousresearch.com/install.ps1\")"
+            },
+            "update": {
+                "unix": "hermes update",
+                "windows": "hermes update"
+            },
+            "headless": [
+                "hermes",
+                "chat",
+                "-q",
+                "{prompt}"
+            ],
+            "model_args": [
+                "--provider",
+                "{provider}",
+                "-m",
+                "{model}"
+            ],
+            "headless_verified": true,
+            "herdr_kind": null,
+            "account": {
+                "type": "args",
+                "args": [
+                    "-p",
+                    "{profile}"
+                ],
+                "note": "Hermes named profiles"
+            },
+            "permission": {
+                "auto": [],
+                "yolo": [
+                    "--yolo"
+                ]
+            },
+            "startup_forms": []
+        },
+        {
+            "id": "kilo",
+            "name": "Kilo CLI",
+            "binary": "kilo",
+            "tags": [
+                "free-tokens"
+            ],
+            "install": {
+                "unix": "curl -fsSL https://kilo.ai/cli/install | bash",
+                "windows": "npm install -g @kilocode/cli"
+            },
+            "update": {
+                "unix": "kilo upgrade",
+                "windows": "kilo upgrade"
+            },
+            "headless": [
+                "kilo",
+                "run",
+                "{prompt}"
+            ],
+            "headless_verified": true,
+            "herdr_kind": null,
+            "account": {
+                "type": "env",
+                "var": "XDG_DATA_HOME",
+                "default": "~/.local/share",
+                "verified": false,
+                "note": "parent of the kilo/ data directory"
+            },
+            "permission": {
+                "auto": [
+                    "--auto"
+                ],
+                "yolo": [
+                    "--auto"
+                ]
+            },
+            "startup_forms": []
+        },
+        {
+            "id": "opencode",
+            "name": "OpenCode CLI",
+            "binary": "opencode",
+            "tags": [],
+            "install": {
+                "unix": "curl -fsSL https://opencode.ai/install | bash",
+                "windows": "npm install -g opencode-ai"
+            },
+            "update": {
+                "unix": "opencode upgrade",
+                "windows": "opencode upgrade"
+            },
+            "headless": [
+                "opencode",
+                "run",
+                "{prompt}"
+            ],
+            "headless_verified": true,
+            "herdr_kind": "opencode",
+            "account": {
+                "type": "env",
+                "var": "XDG_DATA_HOME",
+                "default": "~/.local/share",
+                "verified": false,
+                "note": "parent of the opencode/ data directory"
+            },
+            "permission": {
+                "auto": [
+                    "--auto"
+                ],
+                "yolo": [
+                    "--auto"
+                ]
+            },
+            "startup_forms": []
+        },
+        {
+            "id": "herdr",
+            "name": "herdr",
+            "binary": "herdr",
+            "tags": [],
+            "install": {
+                "unix": "curl -fsSL https://herdr.dev/install.sh | sh",
+                "windows": null
+            },
+            "update": {
+                "unix": "herdr update",
+                "windows": null
+            },
+            "headless": null,
+            "herdr_kind": null,
+            "account": null
+        },
+        {
+            "id": "muse",
+            "name": "Muse Code CLI",
+            "binary": "muse",
+            "tags": [],
+            "install": {
+                "unix": "curl -fsSL https://dev.meta.ai/install.sh | bash",
+                "windows": "irm https://dev.meta.ai/install.ps1 | iex"
+            },
+            "update": {
+                "unix": "curl -fsSL https://dev.meta.ai/install.sh | bash",
+                "windows": "irm https://dev.meta.ai/install.ps1 | iex"
+            },
+            "headless": [
+                "muse",
+                "exec",
+                "{prompt}"
+            ],
+            "headless_verified": true,
+            "herdr_kind": null,
+            "account": null
+        }
+    ]
+}

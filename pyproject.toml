@@ -1,0 +1,27 @@
+[project]
+name = "any-agent-orchestrator"
+version = "0.1.0"
+description = "Orchestrate CLI, web and desktop AI agents across machines; dashboards for machines, quotas, token usage and cost"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+dependencies = ["psutil>=6.0"]
+
+[project.scripts]
+aao = "orchestrator.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/orchestrator"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = ["e2e: drives real agents and web apps; spends tokens (uv run pytest -m e2e)"]
+addopts = "-m 'not e2e'"

@@ -1,0 +1,5 @@
+*
+!agents.json
+!install_agents.sh
+!update_agents.sh
+!docker-entrypoint.sh

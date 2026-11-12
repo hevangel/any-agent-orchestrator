@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Test Results</title>
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface: #fcfcfb; --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
+  --grid: #e1e0d9; --ring: rgba(11,11,11,0.10); --link: #2a78d6;
+  --good: #0ca30c; --serious: #ec835a; --critical: #d03b3b; --skip: #898781;
+  --good-wash: rgba(12,163,12,.10); --bad-wash: rgba(208,59,59,.10); --skip-wash: rgba(137,135,129,.10);
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --ring: rgba(255,255,255,0.10); --link: #3987e5;
+    --good-wash: rgba(12,163,12,.18); --bad-wash: rgba(208,59,59,.20); --skip-wash: rgba(137,135,129,.16);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
+  --grid: #2c2c2a; --ring: rgba(255,255,255,0.10); --link: #3987e5;
+  --good-wash: rgba(12,163,12,.18); --bad-wash: rgba(208,59,59,.20); --skip-wash: rgba(137,135,129,.16);
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header, main { max-width: 1280px; margin: 0 auto; padding: 16px; }
+header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+h1 { font-size: 18px; margin: 0; }
+h2 { font-size: 15px; margin: 24px 0 8px; }
+.meta { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+select, input, button { font: inherit; background: var(--surface); color: var(--ink); border: 1px solid var(--ring); border-radius: 8px; padding: 6px 10px; }
+button { cursor: pointer; color: var(--ink-2); }
+.bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.tiles { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+.card { background: var(--surface); border: 1px solid var(--ring); border-radius: 12px; padding: 12px 14px; min-width: 0; }
+.tile .v { font-size: 26px; font-weight: 600; }
+.tile .l { color: var(--ink-2); font-size: 12px; }
+.wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+th { color: var(--ink-2); font-weight: 600; white-space: nowrap; }
+td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.badge { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 99px; white-space: nowrap; }
+.badge.passed { background: var(--good-wash); color: var(--ink); } .badge.passed i { color: var(--good); }
+.badge.failed, .badge.error { background: var(--bad-wash); color: var(--ink); } .badge.failed i, .badge.error i { color: var(--critical); }
+.badge.skipped { background: var(--skip-wash); color: var(--ink-2); }
+.badge i { font-style: normal; }
+.matrix td { text-align: center; } .matrix td:first-child, .matrix th:first-child { text-align: left; }
+.matrix a { text-decoration: none; }
+details.test { border-bottom: 1px solid var(--grid); }
+details.test > summary { list-style: none; cursor: pointer; display: grid; grid-template-columns: 110px 1fr auto; gap: 10px; padding: 8px 4px; align-items: center; }
+details.test > summary::-webkit-details-marker { display: none; }
+details.test[open] > summary { background: var(--skip-wash); }
+.name { overflow-wrap: anywhere; }
+.body { padding: 8px 4px 16px; display: grid; gap: 10px; }
+pre { margin: 0; background: var(--page); border: 1px solid var(--ring); border-radius: 8px; padding: 10px; font-size: 12px; max-height: 420px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+img.shot { max-width: 100%; border: 1px solid var(--ring); border-radius: 8px; }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; font-size: 12px; }
+.kv dt { color: var(--ink-2); } .kv dd { margin: 0; overflow-wrap: anywhere; }
+a { color: var(--link); }
+.empty { color: var(--ink-2); padding: 24px 0; }
+</style>
+</head>
+<body>
+<header>
+  <div><h1>Test results</h1><div class="meta" id="runmeta"></div></div>
+  <div class="bar">
+    <label class="meta" for="run">Run</label><select id="run"></select>
+    <button id="theme" title="Toggle light/dark" aria-label="Toggle light or dark theme">◐</button>
+  </div>
+</header>
+<main id="main"></main>
+<!-- Written by tests/conftest.py after every pytest run. A script, not JSON, so this page works from file://. -->
+<script src="result/index.js"></script>
+<script>
+"use strict";
+const RUNS = window.AAO_TEST_RUNS || [];
+const $ = s => document.querySelector(s);
+function h(tag, attrs = {}, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (v == null || v === false) continue;
+    if (k.startsWith("on")) el.addEventListener(k.slice(2), v); else el.setAttribute(k, v === true ? "" : v);
+  }
+  for (const kid of kids.flat()) if (kid != null && kid !== false) el.append(kid.nodeType ? kid : String(kid));
+  return el;
+}
+const ICON = { passed: "✓", failed: "✕", error: "!", skipped: "–" };
+const badge = o => h("span", { class: `badge ${o}` }, h("i", { "aria-hidden": "true" }, ICON[o] || "?"), o);
+const state = { outcome: "all", suite: "all", agent: "all", q: "" };
+const agentOf = x => (x.info && (x.info.cli || x.info.target)) || "";
+
+function anchor(t) { return "t-" + t.nodeid.replace(/[^A-Za-z0-9]+/g, "-"); }
+
+function renderRun(run) {
+  const main = $("#main");
+  $("#runmeta").textContent = `${run.run_id} · ${run.duration}s · ${run.environment.platform} · python ${run.environment.python}` +
+    (run.environment.commit ? ` · commit ${run.environment.commit}` : "") +
+    (run.environment.args && run.environment.args.length ? ` · pytest ${run.environment.args.join(" ")}` : "");
+  const t = run.totals;
+  const tiles = h("div", { class: "tiles" }, ["passed", "failed", "error", "skipped"].filter(k => t[k] || k === "passed" || k === "failed")
+    .map(k => h("div", { class: "card tile" }, h("div", { class: "v" }, t[k] || 0), h("div", { class: "l" }, badge(k)))),
+    h("div", { class: "card tile" }, h("div", { class: "v" }, run.tests.length), h("div", { class: "l" }, "tests")));
+
+  const out = [tiles];
+  const cli = run.tests.filter(x => x.info && x.info.cli);
+  if (cli.length) out.push(h("h2", {}, "CLI control: agent × run mode"), matrix(cli,
+    x => `${x.info.cli} · ${x.info.account}`, x => x.info.mode + (x.info.host && x.info.host !== "local" ? " · " + x.info.host : "")));
+  const web = run.tests.filter(x => x.info && x.info.target);
+  if (web.length) out.push(h("h2", {}, "Web interfaces"), matrix(web, () => "playwright-cli", x => x.info.target));
+
+  const filters = h("div", { class: "bar", style: "margin:20px 0 8px" },
+    h("select", { "aria-label": "Outcome", onchange: e => { state.outcome = e.target.value; list(run); } },
+      ["all", "passed", "failed", "error", "skipped"].map(v => h("option", { value: v, selected: state.outcome === v }, v === "all" ? "All outcomes" : v))),
+    h("select", { "aria-label": "Suite", onchange: e => { state.suite = e.target.value; list(run); } },
+      [["all", "All suites"], ["e2e", "End-to-end"], ["unit", "Unit"]].map(([v, l]) => h("option", { value: v, selected: state.suite === v }, l))),
+    h("select", { "aria-label": "Agent", disabled: !run.tests.some(agentOf), title: run.tests.some(agentOf) ? null : "This run has no agent tests (unit run); pick an e2e run above",
+      onchange: e => { state.agent = e.target.value; list(run); } },
+      h("option", { value: "all", selected: state.agent === "all" }, run.tests.some(agentOf) ? "All agents" : "No agents in this run"),
+      [...new Set(run.tests.map(agentOf).filter(Boolean))].sort().map(v => h("option", { value: v, selected: state.agent === v }, v))),
+    h("input", { type: "search", placeholder: "Filter by name…", value: state.q, "aria-label": "Filter by name",
+      oninput: e => { state.q = e.target.value.toLowerCase(); list(run); } }));
+  out.push(h("h2", {}, "All tests"), filters, h("div", { class: "card", id: "list" }));
+  main.replaceChildren(...out);
+  list(run);
+}
+
+function matrix(tests, rowKey, colKey) {
+  const rows = [...new Set(tests.map(rowKey))].sort(), cols = [...new Set(tests.map(colKey))].sort();
+  const cell = (r, c) => tests.find(x => rowKey(x) === r && colKey(x) === c);
+  return h("div", { class: "card wrap" }, h("table", { class: "matrix" },
+    h("tr", {}, h("th", {}, ""), cols.map(c => h("th", {}, c))),
+    rows.map(r => h("tr", {}, h("th", {}, r), cols.map(c => {
+      const x = cell(r, c);
+      if (!x) return h("td", { class: "meta" }, "—");
+      const secs = x.info.seconds != null ? ` ${x.info.seconds}s` : "";
+      return h("td", {}, h("a", { href: "#" + anchor(x), onclick: () => openTest(x) }, badge(x.outcome)), h("div", { class: "meta" }, secs));
+    })))));
+}
+
+function openTest(x) { setTimeout(() => { const d = document.getElementById(anchor(x)); if (d) { d.open = true; d.scrollIntoView({ block: "start" }); } }, 0); }
+
+function list(run) {
+  const order = { failed: 0, error: 1, passed: 2, skipped: 3 };
+  const tests = run.tests.filter(x => (state.outcome === "all" || x.outcome === state.outcome) &&
+    (state.suite === "all" || x.suite === state.suite) &&
+    (state.agent === "all" || agentOf(x) === state.agent) && (!state.q || x.nodeid.toLowerCase().includes(state.q)))
+    .sort((a, b) => order[a.outcome] - order[b.outcome] || a.nodeid.localeCompare(b.nodeid));
+  const box = $("#list");
+  if (!tests.length) return box.replaceChildren(h("div", { class: "empty" }, "No tests match."));
+  box.replaceChildren(...tests.map(x => h("details", { class: "test", id: anchor(x) },
+    h("summary", {}, badge(x.outcome), h("span", { class: "name" }, x.nodeid), h("span", { class: "meta" }, x.duration + "s")),
+    h("div", { class: "body" },
+      x.message ? h("pre", {}, x.message) : null,
+      x.info && Object.keys(x.info).length ? h("dl", { class: "kv" }, Object.entries(x.info).flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, typeof v === "object" ? JSON.stringify(v) : v)])) : null,
+      (x.evidence || []).map(e => h("div", {},
+        h("div", { class: "meta" }, e.name, " · ", h("a", { href: "result/" + e.path, target: "_blank", rel: "noopener" }, e.path)),
+        e.kind === "image" ? h("a", { href: "result/" + e.path, target: "_blank", rel: "noopener" }, h("img", { class: "shot", src: "result/" + e.path, alt: e.name, loading: "lazy" }))
+          : e.content != null ? h("pre", {}, e.content) : null))))));
+}
+
+if (!RUNS.length) {
+  $("#main").replaceChildren(h("p", { class: "empty" }, "No recorded runs yet. Run ", h("code", {}, "uv run pytest"), " or ", h("code", {}, "uv run pytest -m e2e"), ", then reload."));
+} else {
+  const sel = $("#run");
+  const agentsIn = r => [...new Set(r.tests.map(agentOf).filter(Boolean))];
+  RUNS.forEach((r, i) => {
+    const a = agentsIn(r);
+    const kind = a.length ? `e2e: ${a.length > 4 ? a.length + " agents" : a.join(", ")}` : "unit";
+    sel.append(h("option", { value: i }, `${r.run_id} · ${kind} · ✓${r.totals.passed || 0} ✕${(r.totals.failed || 0) + (r.totals.error || 0)}`));
+  });
+  sel.addEventListener("change", () => { state.agent = "all"; renderRun(RUNS[+sel.value]); });
+  // open the newest run that tested agents; unit-only runs stay one click away in the picker
+  const first = Math.max(0, RUNS.findIndex(r => agentsIn(r).length));
+  sel.value = first;
+  renderRun(RUNS[first]);
+}
+$("#theme").addEventListener("click", () => {
+  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+  const cur = document.documentElement.dataset.theme || (dark ? "dark" : "light");
+  document.documentElement.dataset.theme = cur === "dark" ? "light" : "dark";
+});
+</script>
+</body>
+</html>

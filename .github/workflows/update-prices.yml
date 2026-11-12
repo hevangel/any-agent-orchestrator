@@ -1,0 +1,42 @@
+name: Update API prices
+
+# Parses the official pricing pages (no LLM) and opens a PR when data/api_prices.json changes.
+on:
+  schedule:
+    - cron: "17 6 * * *"   # daily, 06:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Update price table
+        id: update
+        run: |
+          uv run aao prices update | tee update.log
+          uv run pytest -q tests/test_price_update.py tests/test_usage_and_pricing.py
+      - name: Open pull request
+        if: always() && steps.update.outcome != 'cancelled'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if git diff --quiet -- data/api_prices.json; then
+            echo "No price changes."; exit 0
+          fi
+          branch="data/prices-$(date -u +%F)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add data/api_prices.json
+          git commit -m "data: API prices $(date -u +%F)"
+          git push --force -u origin "$branch"
+          if ! gh pr view "$branch" >/dev/null 2>&1; then
+            { echo '`aao prices update` found changes on the official pricing pages:'; echo; echo '```'; cat update.log; echo '```'; } > body.md
+            gh pr create --head "$branch" --title "data: API prices $(date -u +%F)" --body-file body.md
+          fi
