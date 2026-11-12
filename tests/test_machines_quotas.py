@@ -10,6 +10,18 @@ def test_probe_parsers():
     assert probe.cpu_percent_from_samples(first, second) == 50.0
 
 
+def test_gpu_parsers():
+    smi = ("0, NVIDIA GeForce RTX 3060 Ti, 14, 8192, 4152, 46, 21.68, 610.88\n"
+           "1, NVIDIA A100, [N/A], 40960, 0, [N/A], [Not Supported], 610.88\n")
+    first, second = probe.parse_nvidia_smi(smi)
+    assert first["name"] == "NVIDIA GeForce RTX 3060 Ti" and first["util_percent"] == 14
+    assert first["memory_total"] == 8192 * 2**20 and first["memory_used"] == 4152 * 2**20 and first["power_w"] == 21.68
+    assert second["index"] == 1 and second["util_percent"] is None and second["power_w"] is None
+    lspci = ('00:02.0 "VGA compatible controller" "Intel Corporation" "Alder Lake-N [Intel Graphics]" -p00 "Intel" "Device 7270"\n'
+             '00:14.0 "USB controller" "Intel Corporation" "Alder Lake-N xHCI" -p30 "Intel" "Device 7270"\n')
+    assert probe.parse_lspci(lspci) == {"00:02.0": "Intel Corporation Alder Lake-N [Intel Graphics]"}
+
+
 def test_probe_collects_locally():
     doc = probe.collect()
     assert doc["schema"] == "host-v1" and doc["memory"]["total"] and doc["disks"]

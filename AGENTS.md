@@ -2,7 +2,7 @@
 
 ## What this repo is
 
-An agent plugin that lets one AI agent orchestrate many others across three channels:
+An agent plugin that lets one AI agent orchestrate many others across three channels. Every design decision follows [spec/design_philosophy.md](spec/design_philosophy.md) — read it first.
 
 | Channel | Driver | Notes |
 | --- | --- | --- |
@@ -19,17 +19,26 @@ Coordination between agents uses two layers:
 
 The Python package `src/orchestrator/` (command `aao`) collects machine resources, subscription quotas, token usage and API-equivalent cost, and serves a local dashboard — [spec/dashboards.md](spec/dashboards.md). The orchestration plugin itself (dispatching work through herdr, web and desktop drivers) is not written yet.
 
+## Prerequisites
+
+This project needs **uv**, **playwright-cli** with **Google Chrome**, and **herdr**. Docker is optional and never installed automatically. The first time you work in this repo on a machine, check for each one and install what is missing, following [spec/prerequisites.md](spec/prerequisites.md). Ask the human when an install needs administrator rights.
+
+- **Always run Python through uv** (`uv run`, `uv sync`, `uv add`, `uv tool install`); never call `python` or `pip` directly. The only exception is `probe.py` and `usage_scan.py` piped to `python3` on remote machines.
+- playwright-cli drives the installed Chrome (`AAO_WEB_BROWSER=chrome`), not bundled Chromium.
+- herdr runs and controls every CLI agent.
+
 ## Layout
 
 - `agents.json` — single source of truth for supported CLI agents (id, binary, tags `core|tier2|byok|free-tokens`, per-OS install/update commands). `install_agents.sh` and `update_agents.sh` read it with `jq`. Add an agent here, not in scripts or the Dockerfile.
-- `Dockerfile`, `docker-compose.yml`, `.env.example` — container with every CLI agent, `gh`, `uv`, `playwright-cli` + Chromium.
+- `.env.example` — template for `.env`.
+- `Dockerfile`, `docker-compose.yml` — **optional** container with every CLI agent, `gh`, `uv`, `playwright-cli` + Chromium. Nothing requires Docker; the native install ([spec/prerequisites.md](spec/prerequisites.md)) is the default.
 - `.env` (gitignored; template `.env.example`) — remote hosts, CLIs per host, every subscription/API account (multi-account per CLI), e2e matrix and web-profile settings. Read through `orchestrator.config`.
 - `src/orchestrator/drivers.py` — sends a prompt to a CLI in one of six modes (native, docker, herdr, herdr-agent, ssh, herdr-remote) using `agents.json` `headless` templates and `accounts.launch_spec`; `web.py` drives chat sites through playwright-cli persistent profiles.
 - `src/orchestrator/` — collectors, pricing and dashboard server. `probe.py` and `usage_scan.py` must stay **standard-library only**: they are piped to remote machines over SSH (`ssh host python3 - < file`), where nothing is installed.
 - `dashboard/index.html` — the dashboard page (no build step, no CDN); colors follow the dataviz reference palette with light and dark tokens.
 - `data/` — committed data: `api_prices.json` (public API prices with effective dates, updated by the `aao prices update` script and a daily GitHub Action) and `free_tokens.json` (updated by the daily data agent, [prompts/daily_data_update.md](prompts/daily_data_update.md)).
 - `state/` — collector snapshots and quota history, gitignored.
-- `spec/` — design specs; read the one covering your task before changing behavior.
+- `spec/` — design specs; read [design_philosophy.md](spec/design_philosophy.md) and the spec covering your task before changing behavior.
 - `mailbox/` — mailbox protocol (agent and admin procedures), copied verbatim from `hevangel/ai_agents/dropbox/`.
 - `external/` — **read-only reference submodules**: orchestration and web control (orca, mcp-web-llm, browser-harness, MuseBridge), quotas (quota, clanker-usage, llm-runway), token and cost tracking (ccusage, splunk-token-meter, tokenmeter). Never edit them, copy their code wholesale, or bump their pins as cleanup.
 - `temp/`, `.playwright-cli/` — scratch and browser profiles, gitignored.
@@ -42,6 +51,8 @@ git submodule update --init                       # fetch external/ references
 ./install_agents.sh --tags core --dry-run         # preview installs from agents.json (Linux/macOS/WSL)
 ./install_agents.sh                               # install every agent
 ./update_agents.sh --tags core                    # update installed agents (only those whose binary is on PATH)
+
+# optional: Docker
 
 docker compose build                              # AGENT_TAGS in .env limits which agents are baked in
 docker compose run --rm agents                    # shell, workspace at /workspace
@@ -62,6 +73,11 @@ uv run pytest -m e2e -k "herdr-remote-brunhild-codex"   # one e2e case
 uv run aao accounts [--agent claude --host local]   # list/validate .env accounts, show which is used next
 uv run aao web login <site>|--all         # log in once by hand; the playwright-cli profile is saved
 uv run aao web status --all               # which saved web logins still work
+uv run aao web ask claude --chat "<title|id>" --prompt "..."   # continue an existing chat
+uv run aao chats claude|claude-code-web list|sections|search <q>|pin|unpin|move <chat> <section> [--create]|unsection|new-section|delete-section   # chats / Code sessions (web_chats.py)
+uv run aao code sessions|read <s>|send <s> --prompt ..|new --prompt .. [--repo --env --permission]|wait <s> [--wait]   # Claude Code on the web (web_code.py)
+uv run aao code projects|project <name>|project-send <name> --prompt ..   # Projects (beta)
+uv run aao web close [--all]              # browsers stay open between commands (AAO_WEB_KEEP_OPEN=0 to close each time)
 uv run aao serve                          # dashboard at http://127.0.0.1:8765/ + background collectors
 uv run aao collect [machines|quotas|usage]   # one collector, summary to stdout (--json for the document)
 uv run aao prices update [--dry-run]      # parse official pricing pages into data/api_prices.json (no LLM)
@@ -93,7 +109,9 @@ playwright-cli -s=<target> snapshot                 # get element refs, then fil
 playwright-cli -s=<target> state-save               # persist the human's login
 ```
 
-## Docker credentials
+## Docker credentials (optional container)
+
+Docker is optional: the orchestrator, tests and drivers must all work without it, and the `docker` driver mode and its e2e cases skip when the image is not built.
 
 The container never contains credentials. `docker-compose.yml` bind-mounts each agent's credential directory from the host home (`HOST_HOME`, default `$HOME` then `%USERPROFILE%`) read-write, because agents refresh tokens in place. When adding an agent, add its mount and verify the path on a real install. Do not mount host config directories that contain `node_modules` or binaries (they are built for the host OS). Tokens held in an OS credential store (macOS Keychain, Windows Credential Manager) are passed via `.env` variables instead.
 

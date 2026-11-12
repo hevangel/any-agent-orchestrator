@@ -62,13 +62,14 @@ Website agents use your existing logins. You sign in once yourself, and the orch
 
 ## How the agents coordinate
 
-**GitHub Project board: the shared to-do list.** Your main repository hosts a GitHub Project and includes each repository being worked on as a git submodule, so it behaves much like a single repository. Each task is a GitHub issue, and "blocked by" links record which tasks must finish first. Three custom fields show where each task stands:
+**GitHub Project board: the shared to-do list.** Your main repository hosts a GitHub Project and includes each repository being worked on as a git submodule, so it behaves much like a single repository. Each task is a GitHub issue, and "blocked by" links record which tasks must finish first. Custom fields show where each task stands:
 
 - **Status:** Planned → Research → Spec-reviewed → Building → AI-reviewed → Human-reviewed
-- **Agent:** which agent is working on it right now (empty when nobody is)
+- **Agent:** the last agent that worked on it (a `wip` label marks a task someone is working on right now)
+- **Iteration:** the order tasks are taken in
 - **Path:** which repository and folder the work is in
 
-Only a human moves a task to Human-reviewed. Details: [spec/github_project.md](spec/github_project.md).
+Releases go out once the agents have built and reviewed the work. Humans test after the release, and a human marks a task Human-reviewed once they have used it. Details: [spec/github_project.md](spec/github_project.md).
 
 **Mailbox: direct messages between agents.** Agents leave each other messages as small files in a shared Dropbox or Box folder. Files are only ever added, never edited, so two agents can't overwrite each other. Details: [mailbox/AGENTS_MAILBOX.md](mailbox/AGENTS_MAILBOX.md).
 
@@ -85,9 +86,9 @@ Only a human moves a task to Human-reviewed. Details: [spec/github_project.md](s
 
 Tags: `core`, `tier2`, `byok` (bring your own API key), `free-tokens`.
 
-## Run everything in Docker
+## Run everything in Docker (optional)
 
-The Docker image includes every CLI agent, plus the GitHub CLI, uv, playwright-cli and Chromium. It contains no logins: your agents' existing login folders on your computer (`~/.claude`, `~/.codex`, `~/.cursor` and so on) are shared into the container when it starts, so you stay signed in.
+Docker is optional; everything also runs natively. The Docker image includes every CLI agent, plus the GitHub CLI, uv, playwright-cli and Chromium. It contains no logins: your agents' existing login folders on your computer (`~/.claude`, `~/.codex`, `~/.cursor` and so on) are shared into the container when it starts, so you stay signed in.
 
 ```bash
 cp .env.example .env                              # optional settings
@@ -117,6 +118,10 @@ The container doesn't include Claude in Chrome or computer use. They need your o
 ## For AI agents
 
 Agents working in this repo start with [AGENTS.md](AGENTS.md).
+
+## Contributing
+
+All code here is written by AI agents; humans file issues, steer agents and review. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

@@ -48,6 +48,8 @@ section[hidden] { display: none; }
 .meter { margin: 8px 0; }
 .meter .row { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--ink-2); }
 .meter .row b { color: var(--ink); font-weight: 600; }
+.gpu-name { margin: 12px 0 4px; font-size: 12px; color: var(--ink-2); }
+.gpu-name b { color: var(--ink); font-weight: 600; }
 .track { height: 8px; border-radius: 4px; background: var(--seq-track); overflow: hidden; margin-top: 4px; }
 .fill { height: 100%; border-radius: 4px; background: var(--seq); }
 .status { font-size: 12px; display: inline-flex; gap: 4px; align-items: center; }
@@ -182,6 +184,7 @@ function hostCard(m) {
     cards.push(meter("CPU", host.cpu_percent, host.load_avg ? "load " + host.load_avg.map(x => x.toFixed(2)).join(" ") : ""));
     cards.push(meter("RAM", memPct, `${fmtGiB(mem.available)} free of ${fmtGiB(mem.total)}`));
     for (const d of host.disks || []) cards.push(meter("Disk " + d.mount, 100 * d.used / d.total, `${fmtGiB(d.free)} free`));
+    for (const g of host.gpus || []) cards.push(...gpuMeters(g));
   }
   const ag = (m.herdr || {}).agents || [];
   const counts = Object.entries((m.herdr || {}).counts || {}).map(([k, v]) => `${v} ${k}`).join(", ");
@@ -189,6 +192,17 @@ function hostCard(m) {
     ag.length ? h("div", { class: "table-wrap" }, h("table", {}, h("tr", {}, h("th", {}, "Agent"), h("th", {}, "Status"), h("th", {}, "Title"), h("th", {}, "Dir")),
       ag.map(a => h("tr", {}, h("td", {}, a.agent), h("td", {}, a.status), h("td", { class: "wrap" }, a.title || ""), h("td", { class: "wrap" }, a.cwd || ""))))) : h("div", { class: "empty" }, "No agent panes.")));
   return h("div", { class: "card" }, cards);
+}
+function gpuMeters(g) {
+  const extra = [g.temperature_c != null ? `${Math.round(g.temperature_c)}°C` : "", g.power_w != null ? `${Math.round(g.power_w)} W` : ""]
+    .filter(Boolean).join(" · ");
+  const meters = [];
+  if (g.util_percent != null) meters.push(meter("GPU load", g.util_percent, extra));
+  if (g.memory_total && g.memory_used != null)
+    meters.push(meter("VRAM", 100 * g.memory_used / g.memory_total, `${fmtGiB(g.memory_total - g.memory_used)} free of ${fmtGiB(g.memory_total)}`));
+  const facts = [g.driver ? "driver " + g.driver : "", !meters.length && g.memory_total ? fmtGiB(g.memory_total) : "",
+    !meters.length ? "no load data from the OS" : ""].filter(Boolean).join(" · ");
+  return [h("div", { class: "gpu-name" }, h("b", {}, "GPU"), " ", g.name, facts ? h("span", { class: "meta" }, " · " + facts) : null), ...meters];
 }
 function cloudCard(m) {
   const counts = Object.entries(m.counts || {}).map(([k, v]) => `${v} ${k}`).join(", ") || "no tasks";

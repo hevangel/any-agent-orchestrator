@@ -17,6 +17,8 @@ herdr is the source of truth for remote machines: `herdr machine list --json` gi
 - The usage scanner keeps its incremental cache on the remote (`~/.cache/aao/usage_scan.json`).
 - Repositories, credentials and agent CLIs must exist on the remote; paths differ per OS (`B:\repo` vs `/home/u/repo`), so dispatch uses the remote's own paths.
 
+**GPUs** (`probe.gpus()`, field `gpus`, empty when there is none): NVIDIA through `nvidia-smi` on any OS (load, VRAM, temperature, power, driver); on Linux every `/sys/class/drm/cardN` with its `lspci` name, plus load and VRAM where the driver exposes them (amdgpu); on Windows other adapters from `Win32_VideoController` (name, driver; VRAM only below its 4 GiB reporting cap); on macOS `system_profiler` names. Integrated GPUs usually report a name only. The AMD sysfs and macOS paths are untested.
+
 **Choosing a machine** for new work: prefer a machine that already has the repo and the agent's login, then the most available RAM and lowest load (each agent process uses roughly 0.5–2 GB), then the fewest busy herdr agents.
 
 ## Permission mode and startup screens
