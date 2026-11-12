@@ -40,6 +40,7 @@ main { max-width: 1280px; margin: 0 auto; padding: 0 16px 48px; }
 section[hidden] { display: none; }
 .meta { color: var(--muted); font-size: 12px; }
 .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+.host-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); }
 .card { background: var(--surface); border: 1px solid var(--ring); border-radius: 12px; padding: 14px 16px; min-width: 0; }
 .card h3 { margin: 0 0 2px; font-size: 15px; }
 .card .sub { color: var(--ink-2); font-size: 12px; margin-bottom: 10px; overflow-wrap: anywhere; }
@@ -161,13 +162,16 @@ function missing(section, what, cmd) {
 function renderMachines(data) {
   const sec = $("#tab-machines");
   if (!data || data.missing) return missing(sec, "machine", "uv run aao collect machines");
-  const groups = { local: "This computer", ssh: "SSH machines (herdr)", cloud: "Cloud agents (AI labs)" };
   const out = [];
-  for (const [cls, title] of Object.entries(groups)) {
-    const ms = data.machines.filter(m => m.class === cls);
-    if (!ms.length) continue;
-    out.push(h("div", { class: "class-title" }, title));
-    out.push(h("div", { class: "grid" }, ms.map(cls === "cloud" ? cloudCard : hostCard)));
+  const hosts = ["local", "ssh"].flatMap(cls => data.machines.filter(m => m.class === cls));
+  if (hosts.length) {
+    out.push(h("div", { class: "class-title" }, "This computer & SSH machines (herdr)"));
+    out.push(h("div", { class: "grid host-grid" }, hosts.map(hostCard)));
+  }
+  const cloud = data.machines.filter(m => m.class === "cloud");
+  if (cloud.length) {
+    out.push(h("div", { class: "class-title" }, "Cloud agents (AI labs)"));
+    out.push(h("div", { class: "grid" }, cloud.map(cloudCard)));
   }
   if (data.herdr_error) out.push(h("p", { class: "err" }, "herdr: " + data.herdr_error));
   fill(sec, ...out);
