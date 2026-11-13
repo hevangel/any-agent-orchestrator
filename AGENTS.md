@@ -75,6 +75,9 @@ uv run aao web login <site>|--all         # log in once by hand; the playwright-
 uv run aao web status --all               # which saved web logins still work
 uv run aao web ask claude --chat "<title|id>" --prompt "..."   # continue an existing chat
 uv run aao chats claude|claude-code-web list|sections|search <q>|pin|unpin|move <chat> <section> [--create]|unsection|new-section|delete-section   # chats / Code sessions (web_chats.py)
+uv run aao web ask gemini --mode chat|task [--file F ...] [--repo <GitHub URL>] --prompt "..."   # attach files (zip a folder) or a GitHub repo
+uv run aao chats gemini list [--notebook N] [--status 'Needs attention']|notebooks|search <q>|read <chat>|pin|unpin|move <chat> <notebook>|unnotebook|new-notebook|delete-notebook   # Gemini (web_chats_gemini.py)
+uv run aao chats grok list [--project P]|projects|search <q>|pin|unpin|move <chat> <project> [--create]|unproject|new-project|delete-project   # Grok chat + projects (web_chats_grok.py; reads via grok.com's own endpoints)
 uv run aao chats chatgpt list [--project P]|projects|search <q>|pin|unpin|move <chat> <project> [--create]|unproject|new-project|delete-project   # ChatGPT: groups are projects (web_chats_chatgpt.py)
 uv run aao codex threads|read <t>|new --prompt .. [--env --work-in --permission --model --effort --wait]|send <t> --prompt ..|wait <t>|archive <t>
 uv run aao codex attention [<t>] [--json]|answer <t> --choice <option|button>|--text <answer>   # questions are reported to the master agent; secrets never typed

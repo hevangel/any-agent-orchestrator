@@ -9,6 +9,8 @@
     uv run aao chats claude new-group <name> [--chat <chat>]
     uv run aao chats claude delete-group <name> --yes
 
+    uv run aao chats gemini list [--status S]|notebooks|search|read|pin|move <chat> <notebook>|unnotebook|new-notebook|delete-notebook
+    uv run aao chats grok list|projects|search|pin|move <chat> <project>|unproject|new-project|delete-project
     uv run aao chats chatgpt list|projects|move <chat> <project>|unproject|new-project|delete-project
                                                     # ChatGPT: groups are projects (web_chats_chatgpt.py)
 
@@ -20,7 +22,7 @@ spec/web_interfaces.md) and is verified by reading the sidebar again afterwards.
 import json
 import re
 
-from orchestrator import web, web_chats_chatgpt
+from orchestrator import web, web_chats_chatgpt, web_chats_gemini, web_chats_grok
 
 # claude.ai, studied 2026-11-12. The sidebar is a flat list of rows keyed by data-row-key:
 # "label:<id>" starts a section (pinned, recents, custom-cg-<uuid> for a group) and the
@@ -82,6 +84,10 @@ RECIPES = {
                         "home": "/code", "path": r"^/code", "searchResolve": False},
     # chatgpt.com: groups are projects; its own script (web_chats_chatgpt.py)
     "chatgpt": web_chats_chatgpt.RECIPE,
+    # grok.com: groups are projects; reads through the site's own endpoints (web_chats_grok.py)
+    "grok": web_chats_grok.RECIPE,
+    # gemini.google.com: groups are notebooks (web_chats_gemini.py)
+    "gemini": web_chats_gemini.RECIPE,
 }
 
 SCRIPT = r"""async page => {
@@ -434,7 +440,8 @@ def run(target, op, timeout_s=120, **args):
     """Run one chat-list operation in the target's already open session (see web.open_target)."""
     recipe = _recipe(target)
     payload = {"recipe": recipe, "op": op, "loginUrl": web.LOGIN_URL, **args}
-    script = web_chats_chatgpt.SCRIPT if recipe.get("engine") == "chatgpt" else SCRIPT
+    script = {"chatgpt": web_chats_chatgpt.SCRIPT, "grok": web_chats_grok.SCRIPT,
+              "gemini": web_chats_gemini.SCRIPT}.get(recipe.get("engine"), SCRIPT)
     return web.run_script(target, script.replace("__CFG__", json.dumps(payload)), timeout_s)
 
 

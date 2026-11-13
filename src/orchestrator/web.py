@@ -34,6 +34,8 @@ TARGETS = {
                 "assistant": "[data-markdown-text-style='assistant-message']",
                 "busy": ["[data-talvt-turn-state]:not([data-talvt-turn-state='complete'])",
                          "button[aria-label^='Stop']", "[data-testid='stop-button']"],
+                "mode": {"button": "button[aria-label^='Switch mode, current mode: ']",
+                         "prefix": "Switch mode, current mode: ", "want": "ChatGPT"},
                 "chat": True},
     # Studied 2026-11: Enter sends and the URL becomes /chat/<id>; the reply is the last
     # assistant-message, data-is-streaming="true" (plus a "Stop response" button) while it is written.
@@ -47,10 +49,40 @@ TARGETS = {
                         "button[aria-label='Stop response']"],
                "strip": [".sr-only", "[data-testid='message-actions']"],
                "chat": True},
-    "gemini": {"url": "https://gemini.google.com/app", "composer": ["rich-textarea div[role='textbox']",
-                                                                   "div[contenteditable='true'][role='textbox']"], "chat": True},
-    "grok": {"url": "https://grok.com/", "composer": ["textarea[placeholder*='Ask']", "textarea",
-                                                      "div[contenteditable='true']"], "chat": True},
+    # Studied 2026-11-12: composer rich-textarea; Enter sends; URL /app/<16 hex>. Reply: the last
+    # model-response's message-content .markdown (aria-busy="true" while it is written). Chat | Task is
+    # a segmented control; a Task shows its state in remy-goal-status-footer ("Complete").
+    # Attachments: the "Upload and tools" menu creates hidden <input type=file multiple> (documents,
+    # code, .zip); "More uploads" > "Import code" takes a GitHub repository or branch URL.
+    "gemini": {"url": "https://gemini.google.com/app",
+               "composer": ["rich-textarea [contenteditable='true'][role='textbox']", "rich-textarea div[role='textbox']",
+                            "div[contenteditable='true'][role='textbox']"],
+               "send": "button[aria-label='Send message']",
+               "user": "user-query",
+               "assistant": "model-response message-content .markdown",
+               "busy": ["button[aria-label='Stop response']", "model-response message-content [aria-busy='true']"],
+               "strip": ["sources-carousel-inline", "source-inline-chip"],  # file/source references
+               "status": "remy-goal-status-footer",
+               "segment": {"item": "gem-segmented-button", "selectedClass": "gem-segmented-button-selected"},
+               "modes": ["chat", "task"],
+               # human pace (ms ranges): Google answers bursts of scripted actions with a CAPTCHA
+               "pace": {"pause": [700, 1600], "key": [45, 140], "hold": [60, 160], "pasteOver": 400},
+               "attach": {"menu": "button[aria-label='Upload and tools']", "inputAccepts": ".py",
+                          "chip": "gem-attachment", "chipBusy": "[role=progressbar], mat-progress-spinner, mat-progress-bar",
+                          "moreUploads": "More uploads", "importCode": "Import code", "repoDialog": "mat-dialog-container",
+                          "repoInput": "input[aria-label='GitHub repository or branch URL']", "repoImport": "Import", "repoParsed": "Repository:",
+                          "repoNotConnected": "Connect to GitHub"},
+               "chat": True},
+    # Studied 2026-11-12: composer contenteditable "Message Grok"; Enter sends; URL /c/<id> (or
+    # /project/<id>?chat=<id> inside a project). Reply: last [data-testid=assistant-message].
+    "grok": {"url": "https://grok.com/",
+             "composer": ["[contenteditable='true'][aria-label='Message Grok']", "textarea[placeholder*='Ask']",
+                          "div[contenteditable='true']"],
+             "send": "[data-testid='chat-submit']",
+             "user": "[data-testid='user-message']",
+             "assistant": "[data-testid='assistant-message']",
+             "busy": ["button[aria-label^='Stop']"],
+             "chat": True},
     "muse": {"url": "https://muse.ai/", "composer": ["textarea[placeholder='Message']", "textarea",
                                                      "div[contenteditable='true']"], "chat": True},
     "zai": {"url": "https://chat.z.ai/", "composer": ["textarea", "div[contenteditable='true']"], "chat": True},
@@ -70,8 +102,27 @@ LOGIN_URL = r"login|signin|sign-in|sign_in|/auth|accounts\.google\.com|oauth"
 PAGE_SCRIPT = r"""async page => {
   const cfg = __CFG__;
   // passive (login wait): only look at the page; never navigate, click or type while a human logs in
-  if (!cfg.passive && !page.url().startsWith(cfg.url)) await page.goto(cfg.url, { waitUntil: 'domcontentloaded' });
+  // A prompt always starts from a fresh load of its page: the reused browser may be on another chat,
+  // a project page or another mode of the site, and the message would land there.
+  const sameUrl = page.url().split('#')[0] === cfg.url;
+  if (!cfg.passive && (cfg.prompt ? !sameUrl || !cfg.reuse : !page.url().startsWith(cfg.url)))
+    await page.goto(cfg.url, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(cfg.settleMs);
+  // sites with several modes on one page (chatgpt.com: ChatGPT | Codex): switch to the target's mode
+  if (!cfg.passive && cfg.mode) {
+    const btn = page.locator(cfg.mode.button).filter({ visible: true }).first();
+    const now = async () => ((await btn.getAttribute('aria-label').catch(() => '')) || '').slice(cfg.mode.prefix.length);
+    for (let tries = 0; tries < 3 && await btn.count() && await now() !== cfg.mode.want; tries++) {
+      await btn.focus(); await page.keyboard.press('Enter');
+      const items = page.locator('[role=menu] [role=menuitem]');
+      if (!await items.first().waitFor({ timeout: 4000 }).then(() => true, () => false)) continue;
+      const i = (await items.evaluateAll(es => es.map(e => (e.innerText || '').trim().split('\n')[0]))).indexOf(cfg.mode.want);
+      if (i >= 0) await items.nth(i).click();
+      await page.waitForTimeout(1500);
+    }
+    if (await btn.count() && await now() !== cfg.mode.want)
+      return JSON.stringify({ loggedIn: true, ok: false, url: page.url(), reason: 'could not switch to ' + cfg.mode.want + ' mode' });
+  }
   const url = page.url();
   if (new RegExp(cfg.loginUrl, 'i').test(url)) return JSON.stringify({ loggedIn: false, url, reason: 'login page' });
   let composer = null;
@@ -79,6 +130,8 @@ PAGE_SCRIPT = r"""async page => {
     const loc = page.locator(sel).first();
     if (await loc.isVisible().catch(() => false)) { composer = loc; break; }
   }
+  if (/google\.com\/sorry/.test(page.url()))  // Google's "unusual traffic" CAPTCHA: only a human may clear it
+    return JSON.stringify({ loggedIn: true, ok: false, blocked: true, url, reason: 'Google is showing its "unusual traffic" check; a human must clear it in the browser' });
   if (!composer) return JSON.stringify({ loggedIn: false, url, reason: 'no chat box (logged out or page changed)' });
   // Several sites let guests chat; a visible "Sign in" / "Log in" control means we are a guest.
   const signIn = /^\s*(sign in|log in|login|sign up|get started)\s*$/i;
@@ -104,8 +157,87 @@ PAGE_SCRIPT = r"""async page => {
 
   const repliesBefore = await count(cfg.assistant);
   const usersBefore = await count(cfg.user);
-  await composer.click();
-  await page.keyboard.insertText(cfg.prompt);
+  const fail = (stage, reason, extra) => JSON.stringify({ loggedIn: true, ok: false, url: page.url(), stage, reason, ...(extra || {}) });
+  // human pace for sites that rate-limit scripted bursts (cfg.pace): pauses, held clicks, typed keys
+  const rand = ([lo, hi]) => lo + Math.random() * (hi - lo);
+  const pace = cfg.pace;
+  const pause = () => pace ? page.waitForTimeout(rand(pace.pause)) : Promise.resolve();
+  const click = async loc => {
+    await pause();
+    if (pace) { await loc.hover().catch(() => {}); await page.waitForTimeout(rand([150, 400])); }
+    await loc.click(pace ? { delay: rand(pace.hold) } : {});
+  };
+  const typeText = async text => {
+    if (!pace || text.length > pace.pasteOver) { await page.keyboard.insertText(text); return; }
+    for (const ch of text) await page.keyboard.type(ch, { delay: rand(pace.key) });
+  };
+  const escape = async () => { for (let i = 0; i < 3; i++) { await page.keyboard.press('Escape'); await page.waitForTimeout(200); } };
+
+  // 0a. composer mode (gemini: Chat | Task), a segmented control under the prompt box
+  if (cfg.segment && cfg.composeMode) {
+    const seg = page.locator(cfg.segment.item).filter({ hasText: new RegExp('^\\s*' + cfg.composeMode + '\\s*$', 'i') }).first();
+    if (!await seg.count()) return fail('mode', 'no "' + cfg.composeMode + '" mode on this page');
+    if (!await seg.evaluate((e, c) => e.classList.contains(c), cfg.segment.selectedClass)) {
+      await click(seg.locator('button').first()); await page.waitForTimeout(800);
+    }
+    if (!await seg.evaluate((e, c) => e.classList.contains(c), cfg.segment.selectedClass)) return fail('mode', 'could not select ' + cfg.composeMode);
+  }
+  // 0b. attachments: local files through the upload menu's hidden file input (no OS file dialog),
+  // GitHub repositories through "Import code"; each must show as a finished chip before sending
+  const a = cfg.attach || {};
+  const chips = () => a.chip ? page.locator(a.chip).count() : Promise.resolve(0);
+  const chipsReady = async want => {
+    for (let i = 0; i < 120; i++) {
+      const n = await chips();
+      const busyChip = a.chipBusy ? await page.locator(a.chipBusy.split(',').map(s => a.chip + ' ' + s.trim()).join(', ')).count() : 0;
+      if (n >= want && !busyChip) return true;
+      await page.waitForTimeout(500);
+    }
+    return false;
+  };
+  if ((cfg.files || []).length || cfg.repo) {
+    if (!cfg.attach) return fail('attach', 'attachments are not studied for this site');
+  }
+  if ((cfg.files || []).length) {
+    const before = await chips();
+    await click(page.locator(a.menu).filter({ visible: true }).first());
+    await page.waitForTimeout(800);
+    const inputs = page.locator('input[type=file]');
+    const idx = (await inputs.evaluateAll((is, has) => is.map(i => (i.accept || '').includes(has)), a.inputAccepts)).indexOf(true);
+    if (idx < 0) { await escape(); return fail('attach', 'no file input for documents and code'); }
+    await inputs.nth(idx).setInputFiles(cfg.files);
+    await escape();
+    if (!await chipsReady(before + cfg.files.length)) return fail('attach', 'the files did not finish uploading', { attached: await chips() - before });
+  }
+  if (cfg.repo) {
+    const before = await chips();
+    const pane = () => page.locator('.cdk-overlay-pane').filter({ visible: true });
+    await click(page.locator(a.menu).filter({ visible: true }).first()); await page.waitForTimeout(800);
+    await click(pane().locator('button').filter({ hasText: a.moreUploads }).first()); await page.waitForTimeout(800);
+    await click(pane().locator('button, [role^=menuitem]').filter({ hasText: new RegExp('^\\s*' + a.importCode + '\\s*$') }).first());
+    const dlg = page.locator(a.repoDialog).filter({ visible: true }).filter({ has: page.locator(a.repoInput) }).last();
+    if (!await dlg.waitFor({ timeout: 8000 }).then(() => true, () => false)) { await escape(); return fail('attach', 'no "' + a.importCode + '" dialog'); }
+    if (a.repoNotConnected && await dlg.getByText(a.repoNotConnected).count()) { await escape(); return fail('attach', 'GitHub is not connected in this account (connect it once by hand)'); }
+    await click(dlg.locator(a.repoInput)); await typeText(cfg.repo);
+    // the dialog confirms the parsed URL ("Repository: owner/name") before Import takes it
+    if (a.repoParsed && !await dlg.getByText(a.repoParsed).first().waitFor({ timeout: 15000 }).then(() => true, () => false)) {
+      const msg = await dlg.innerText().catch(() => '');
+      await escape(); return fail('attach', 'the repository URL was not accepted', { dialog: msg.slice(0, 300) });
+    }
+    // a press right after the repository line shows is ignored: settle, then press until the dialog closes
+    await page.waitForTimeout(1500);
+    for (let i = 0; i < 3 && await dlg.isVisible().catch(() => false); i++) {
+      await click(dlg.getByRole('button', { name: a.repoImport, exact: true })).catch(() => {});
+      for (let k = 0; k < 8 && await dlg.isVisible().catch(() => false); k++) await page.waitForTimeout(500);
+    }
+    if (!await chipsReady(before + 1)) {
+      const msg = await page.locator(a.repoDialog).filter({ visible: true }).innerText().catch(() => '');
+      await escape(); return fail('attach', 'the repository was not attached', { dialog: msg.slice(0, 300) });
+    }
+  }
+  await click(composer);
+  await typeText(cfg.prompt);
+  await pause();
   await page.keyboard.press('Enter');
 
   // 1. the message must leave the composer: a new user turn or a URL change; else click Send once
@@ -133,7 +265,10 @@ PAGE_SCRIPT = r"""async page => {
     reply = await lastReply();
     if (reply && reply === previous) {
       const matched = cfg.expect ? new RegExp(cfg.expect).test(reply) : true;
+      // a task's status line (gemini Task: "Complete", or a state that needs the human)
+      const status = cfg.status ? await page.locator(cfg.status).last().innerText().then(s => s.trim(), () => null) : null;
       return JSON.stringify({ loggedIn: true, ok: matched, url: page.url(), reply, seconds: (Date.now() - started) / 1000,
+                              ...(status ? { taskStatus: status } : {}),
                               ...(matched ? {} : { reason: 'reply does not match ' + cfg.expect }) });
     }
     previous = reply; stage = 'settling';
@@ -215,14 +350,30 @@ def release(target, settings=None):
         close_target(target)
 
 
-def _run_page(target, prompt=None, expect=None, timeout_s=120, settle_ms=4000, passive=False, url=None):
-    """One page check or prompt turn. `url` opens that page (e.g. an existing chat) instead of a new chat."""
+def _run_page(target, prompt=None, expect=None, timeout_s=120, settle_ms=4000, passive=False, url=None,
+              files=None, repo=None, mode=None):
+    """One page check or prompt turn. `url` opens that page (e.g. an existing chat) instead of a new chat.
+    `files` (local paths) and `repo` (GitHub URL) are attached first; `mode` picks the composer mode."""
     cfg = TARGETS[target]
     if passive and prompt:
         raise ValueError("a passive page check cannot send a prompt")
+    if (files or repo) and not cfg.get("attach"):
+        raise ValueError(f"attachments are not studied for {target}")
+    if not mode and prompt and cfg.get("modes"):
+        mode = cfg["modes"][0]  # the page keeps the last mode used (gemini: a Task), so set the default
+    if mode and mode.lower() not in cfg.get("modes", []):
+        raise ValueError(f"{target} has no {mode!r} mode (have: {', '.join(cfg.get('modes', [])) or 'none'})")
+    paths = []
+    for f in files or []:
+        path = Path(f).expanduser().resolve()
+        if not path.is_file():
+            raise FileNotFoundError(f"no such file: {f}")
+        paths.append(path.as_posix())
     payload = {"url": url or cfg["url"], "composer": cfg["composer"], "loginUrl": LOGIN_URL, "prompt": prompt,
                "expect": expect, "timeoutMs": timeout_s * 1000, "settleMs": settle_ms, "passive": passive,
-               **{k: cfg.get(k) for k in ("send", "user", "assistant", "busy", "strip")}}
+               "reuse": bool(url),  # an existing chat already open may be used as it is
+               "files": paths, "repo": repo, "composeMode": mode.capitalize() if mode else None,
+               **{k: cfg.get(k) for k in ("send", "user", "assistant", "busy", "strip", "mode", "status", "segment", "attach", "pace")}}
     return run_script(target, PAGE_SCRIPT.replace("__CFG__", json.dumps(payload)), timeout_s + 60)
 
 
@@ -288,8 +439,10 @@ def login(target, wait_minutes=15, settings=None):
         release(target)
 
 
-def ask(target, prompt, expect, timeout_s=120, settings=None, screenshot_path=None, chat=None):
-    """Send one prompt; `chat` (id, URL or exact title) continues that chat instead of starting a new one."""
+def ask(target, prompt, expect, timeout_s=120, settings=None, screenshot_path=None, chat=None,
+        files=None, repo=None, mode=None):
+    """Send one prompt; `chat` (id, URL or exact title) continues that chat instead of starting a new one.
+    `files` / `repo` attach local files / a GitHub repository first (gemini); `mode` is chat or task (gemini)."""
     ok, _, err = open_target(target, settings=settings)
     if not ok:
         return {"target": target, "ok": False, "error": err}
@@ -301,7 +454,7 @@ def ask(target, prompt, expect, timeout_s=120, settings=None, screenshot_path=No
             if not found.get("url"):
                 return {"target": target, "ok": False, **found}
             url = found["url"]
-        return {"target": target, **_run_page(target, prompt, expect, timeout_s, url=url)}
+        return {"target": target, **_run_page(target, prompt, expect, timeout_s, url=url, files=files, repo=repo, mode=mode)}
     finally:
         if screenshot_path:
             screenshot(target, screenshot_path)

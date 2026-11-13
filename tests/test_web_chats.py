@@ -14,7 +14,7 @@ def test_resolve_ids_and_urls_without_a_browser():
 
 def test_unstudied_target_is_refused():
     with pytest.raises(ValueError):
-        web_chats.resolve("grok", "some title")
+        web_chats.resolve("muse", "some title")
 
 
 def test_script_payload_is_valid_json(monkeypatch):
@@ -96,7 +96,7 @@ def test_project_names_are_aliases(monkeypatch, capsys):
     seen = {}
     monkeypatch.setattr(web_chats, "session", lambda target, op, **kw: seen.update(op=op, kw=kw) or {"ok": True, "sections": []})
     assert cli.main(["chats", "chatgpt", "projects"]) == 0 and seen["op"] == "list"
-    assert cli.main(["chats", "chatgpt", "list", "--project", "AI"]) == 0 and seen["kw"] == {"group": "AI"}
+    assert cli.main(["chats", "chatgpt", "list", "--project", "AI"]) == 0 and seen["kw"] == {"group": "AI", "status": None}
     assert cli.main(["chats", "chatgpt", "unproject", "X"]) == 0 and seen["op"] == "ungroup"
     assert cli.main(["chats", "chatgpt", "delete-project", "P"]) == 1
     assert "deletes a project's chats" in capsys.readouterr().out

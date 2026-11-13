@@ -226,3 +226,6 @@ state/
 
 # Test results and evidence (transcripts, screenshots)
 tests/result/
+
+# Generated agent skills (scripts/install_skills.sh)
+.agents/

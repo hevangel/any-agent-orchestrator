@@ -95,11 +95,17 @@ def cmd_web(args):
             result = web.status(target)
         else:
             prompt, expect = drivers.check_prompt()
-            result = web.ask(target, args.prompt or prompt, args.expect or expect, chat=args.chat)
+            try:
+                result = web.ask(target, args.prompt or prompt, args.expect or expect, chat=args.chat,
+                                 files=args.file, repo=args.repo, mode=args.mode, timeout_s=args.timeout)
+            except (ValueError, FileNotFoundError) as exc:
+                result = {"ok": False, "error": str(exc)}
         good = result.get("ok", result.get("loggedIn"))
         failed += not good
         detail = result.get("reason") or result.get("error") or result.get("url") or ""
         print(f"  {target:16} {'OK ' if good else 'NO '} {detail}")
+        if result.get("taskStatus"):
+            print(f"  {'':16} task: {result['taskStatus']}")
         if result.get("reply"):
             print(f"  {'':16} reply: {result['reply'][:500]}")
     return 1 if failed else 0
@@ -111,20 +117,25 @@ SECTION_ALIASES = {"sections": "groups", "new-section": "new-group", "delete-sec
                    "unsection": "ungroup"}
 PROJECT_ALIASES = {"projects": "groups", "new-project": "new-group", "delete-project": "delete-group",
                    "unproject": "ungroup"}
+NOTEBOOK_ALIASES = {"notebooks": "groups", "new-notebook": "new-group", "delete-notebook": "delete-group",
+                    "unnotebook": "ungroup"}  # Gemini
 
 
 def cmd_chats(args):
     from orchestrator import web_chats
 
-    op = SECTION_ALIASES.get(args.op) or PROJECT_ALIASES.get(args.op) or args.op
+    op = SECTION_ALIASES.get(args.op) or PROJECT_ALIASES.get(args.op) or NOTEBOOK_ALIASES.get(args.op) or args.op
     word = web_chats.RECIPES.get(args.target, {}).get("groupWord", "section")
     if op == "delete-group" and not args.yes:
-        what = ("(refused while it has chats: ChatGPT deletes a project's chats with it)" if word == "project"
-                else "(its chats go back to Recents)")
+        what = {"chatgpt": "(refused while it has chats: ChatGPT deletes a project's chats with it)",
+                "grok": "(its chats stay as standalone chats)",
+                "gemini": "(refused while it has sources or chats: Gemini deletes them in Gemini and NotebookLM)",
+                }.get(args.target, "(its chats go back to Recents)")
         print(f"  deleting {word} {args.name!r} needs --yes {what}")
         return 1
     kwargs = {
-        "list": {"group": getattr(args, "group", None)}, "groups": {},
+        "list": {"group": getattr(args, "group", None), "status": getattr(args, "status", None)}, "groups": {},
+        "read": {"chat": getattr(args, "chat", None)},
         "search": {"query": getattr(args, "query", None), "kind": getattr(args, "kind", None)},
         "pin": {"chat": getattr(args, "chat", None)}, "unpin": {"chat": getattr(args, "chat", None)},
         "move": {"chat": getattr(args, "chat", None), "group": getattr(args, "group", None),
@@ -135,6 +146,8 @@ def cmd_chats(args):
     }[op]
     if op == "new-group" and kwargs["chat"]:  # create the group by moving the chat into it
         op, kwargs = "move", {"chat": kwargs["chat"], "group": kwargs["group"], "create": True}
+    if op == "groups":
+        kwargs["allGroups"] = True  # every group, not only the ones the sidebar shows
     result = web_chats.session(args.target, "list" if op == "groups" else op, **kwargs)
     if args.json:
         print(json.dumps(result, indent=1))
@@ -151,7 +164,14 @@ def cmd_chats(args):
             if op == "list":
                 for c in s["items"]:
                     extra = " · ".join(x for x in (c.get("status"), c.get("detail")) if x)
-                    print(f"      {c['title'][:60]:60} {c['url']}  {extra[:90]}".rstrip())
+                    print(f"      {c['title'][:60]:60} {c.get('url') or ''}  {extra[:90]}".rstrip())
+    elif op == "read" and result.get("ok"):
+        state = result.get("taskStatus") or result.get("status") or ("working" if result.get("working") else "idle")
+        print(f"  {result.get('title') or ''}  [{state}]  {result.get('url')}")
+        print(f"    last prompt: {(result.get('lastPrompt') or '')[:300]}")
+        print(f"    reply: {(result.get('reply') or '')[:1500]}")
+        if result.get("actions"):
+            print(f"    buttons: {', '.join(result['actions'])}")
     elif op == "search" and result.get("results") is not None:
         for c in result["results"]:
             print(f"  {c['type'] or '':13} {c['title'][:60]:60} {c['url'] or c['id']}")
@@ -399,15 +419,22 @@ def main(argv=None):
     p.add_argument("--prompt")
     p.add_argument("--expect", help="regex the reply must match")
     p.add_argument("--chat", help="ask: continue this chat (id, URL or exact title) instead of a new one")
+    p.add_argument("--file", action="append", help="ask: attach a local file (repeatable; gemini; zip a folder)")
+    p.add_argument("--repo", help="ask: attach a GitHub repository or branch URL (gemini 'Import code')")
+    p.add_argument("--mode", help="ask: composer mode, e.g. gemini chat|task")
+    p.add_argument("--timeout", type=int, default=120, help="ask: seconds to wait for the reply")
     p.set_defaults(func=cmd_web)
 
     p = sub.add_parser("chats", help="chat/session list of a web app: list, search, pin, sections/projects (groups)")
-    p.add_argument("target", help="claude (chats), claude-code-web (Code sessions) or chatgpt (groups are projects)")
+    p.add_argument("target", help="claude (chats), claude-code-web (Code sessions), chatgpt or grok (projects), gemini (notebooks)")
     p.add_argument("--json", action="store_true")
     ops = p.add_subparsers(dest="op", required=True)
-    alias = {v: [k, next(p for p, g in PROJECT_ALIASES.items() if g == v)] for k, v in SECTION_ALIASES.items()}
+    alias = {v: [k, next(p for p, g in PROJECT_ALIASES.items() if g == v), next(n for n, g in NOTEBOOK_ALIASES.items() if g == v)]
+             for k, v in SECTION_ALIASES.items()}
     o = ops.add_parser("list", help="sidebar sections (Pinned, your sections, Recents) and their items")
-    o.add_argument("--group", "--section", "--project", dest="group", help="only this section (a ChatGPT project: all its chats)")
+    o.add_argument("--group", "--section", "--project", "--notebook", dest="group",
+                   help="only this section (a ChatGPT project or Gemini notebook: all its chats)")
+    o.add_argument("--status", help="gemini: only chats whose task state is this, e.g. 'Needs attention'")
     o = ops.add_parser("groups", aliases=alias["groups"], help="list the sections / projects (groups)")
     o.set_defaults(group=None)
     o = ops.add_parser("search", help="search chats (and artifacts, sessions, projects)")
@@ -416,6 +443,7 @@ def main(argv=None):
     for name in ("pin", "unpin"):
         ops.add_parser(name).add_argument("chat", help="id, URL or exact title")
     ops.add_parser("ungroup", aliases=alias["ungroup"], help="take it out of its section").add_argument("chat")
+    ops.add_parser("read", help="gemini: a chat's last prompt, reply and task state").add_argument("chat")
     o = ops.add_parser("move", help="move a chat or session into a section")
     o.add_argument("chat")
     o.add_argument("group", metavar="section")

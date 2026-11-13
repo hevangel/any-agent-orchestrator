@@ -20,10 +20,13 @@ def _section_of(sections, chat_id):
     return next((s for s in sections if any(c["id"] == chat_id for c in s["items"])), {})
 
 
-def _groups_of(sections, chat_id):
+def _groups_of(sections, chat_id, title=None):
     """Groups holding the chat. ChatGPT also lists a project's chat under Recents, and shows a
-    project's chats only when it is expanded, so membership is read with list --group."""
-    return [s["name"] for s in sections if s["kind"] == "group" and any(c["id"] == chat_id for c in s["items"])]
+    project's chats only when it is expanded, so membership is read with list --group. Gemini lists
+    a notebook's chats by title only (no ids), so the title counts too."""
+    def held(c):
+        return c.get("id") == chat_id or (title and not c.get("id") and c.get("title") == title)
+    return [s["name"] for s in sections if s["kind"] == "group" and any(held(c) for c in s["items"])]
 
 
 def test_web_chat_list(web_target, e2e_timeout, evidence):
@@ -50,6 +53,7 @@ def test_web_chat_list(web_target, e2e_timeout, evidence):
         run = lambda op, **kw: steps.setdefault(f"{len(steps):02} {op}", web_chats.run(web_target, op, **kw))  # noqa: E731
 
         listed = run("list")
+        title = (run("resolve", chat=chat_id) or {}).get("title")
         kinds = {s["kind"] for s in listed["sections"]}
         assert {"pinned", "recents"} <= kinds, listed
         # search an older chat: a chat made seconds ago is often not in the search index yet
@@ -64,9 +68,9 @@ def test_web_chat_list(web_target, e2e_timeout, evidence):
 
         assert run("new-group", group=group)["ok"]
         assert run("move", chat=chat_id, group=group)["ok"]
-        assert _groups_of(run("list", group=group)["sections"], chat_id) == [group]
+        assert _groups_of(run("list", group=group)["sections"], chat_id, title) == [group]
         assert run("ungroup", chat=chat_id)["ok"]
-        assert _groups_of(run("list", group=group)["sections"], chat_id) == []
+        assert _groups_of(run("list", group=group)["sections"], chat_id, title) == []
         assert run("delete-group", group=group)["ok"]
         assert group not in [s["name"] for s in run("list")["sections"]]
     finally:
