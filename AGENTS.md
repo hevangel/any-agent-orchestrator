@@ -75,11 +75,15 @@ uv run aao web login <site>|--all         # log in once by hand; the playwright-
 uv run aao web status --all               # which saved web logins still work
 uv run aao web ask claude --chat "<title|id>" --prompt "..."   # continue an existing chat
 uv run aao chats claude|claude-code-web list|sections|search <q>|pin|unpin|move <chat> <section> [--create]|unsection|new-section|delete-section   # chats / Code sessions (web_chats.py)
+uv run aao web ask gemini --mode chat|task [--file F ...] [--repo <GitHub URL>] --prompt "..."   # attach files (zip a folder) or a GitHub repo
+uv run aao chats gemini list [--notebook N] [--status 'Needs attention']|notebooks|search <q>|read <chat>|pin|unpin|move <chat> <notebook>|unnotebook|new-notebook|delete-notebook   # Gemini (web_chats_gemini.py)
+uv run aao chats grok list [--project P]|projects|search <q>|pin|unpin|move <chat> <project> [--create]|unproject|new-project|delete-project   # Grok chat + projects (web_chats_grok.py; reads via grok.com's own endpoints)
 uv run aao chats chatgpt list [--project P]|projects|search <q>|pin|unpin|move <chat> <project> [--create]|unproject|new-project|delete-project   # ChatGPT: groups are projects (web_chats_chatgpt.py)
 uv run aao codex threads|read <t>|new --prompt .. [--env --work-in --permission --model --effort --wait]|send <t> --prompt ..|wait <t>|archive <t>
 uv run aao codex attention [<t>] [--json]|answer <t> --choice <option|button>|--text <answer>   # questions are reported to the master agent; secrets never typed
 uv run aao code sessions|read <s>|send <s> --prompt ..|new --prompt .. [--repo --env --permission]|wait <s> [--wait]   # Claude Code on the web (web_code.py)
 uv run aao code projects|project <name>|project-send <name> --prompt ..   # Projects (beta)
+uv run aao flow status|projects|new [--title]|read <p> [--type]|download <p> <media> [--to --quality]|upload <p> <file>..|options|delete <p> --yes   # Google Flow (web_flow.py); generation not driven, upscales spend credits
 uv run aao web close [--all]              # browsers stay open between commands (AAO_WEB_KEEP_OPEN=0 to close each time)
 uv run aao serve                          # dashboard at http://127.0.0.1:8765/ + background collectors
 uv run aao collect [machines|quotas|usage]   # one collector, summary to stdout (--json for the document)

@@ -22,6 +22,10 @@
             ],
             "headless_verified": true,
             "herdr_kind": "claude",
+            "quota_screen": {
+                "command": "/usage",
+                "parser": "claude"
+            },
             "account": {
                 "type": "env",
                 "var": "CLAUDE_CONFIG_DIR",
@@ -80,6 +84,10 @@
             ],
             "headless_verified": true,
             "herdr_kind": "codex",
+            "quota_screen": {
+                "command": "/status",
+                "parser": "codex"
+            },
             "account": {
                 "type": "env",
                 "var": "CODEX_HOME",
@@ -136,6 +144,11 @@
             ],
             "headless_verified": true,
             "herdr_kind": "cursor",
+            "quota_screen": {
+                "command": "/usage",
+                "parser": "cursor",
+                "prefer": true
+            },
             "account": {
                 "type": "env",
                 "var": "CURSOR_API_KEY",
@@ -217,6 +230,11 @@
             ],
             "headless_verified": true,
             "herdr_kind": "kiro",
+            "quota_screen": {
+                "command": "/usage",
+                "parser": "kiro",
+                "start_args": ["chat"]
+            },
             "account": null,
             "permission": {
                 "auto": [
@@ -251,6 +269,11 @@
             ],
             "headless_verified": true,
             "herdr_kind": "agy",
+            "quota_screen": {
+                "command": "/usage",
+                "parser": "antigravity",
+                "read_pages": [{"keys": ["down"], "repeat": 20}]
+            },
             "account": null,
             "permission": {
                 "auto": [
@@ -261,7 +284,14 @@
                     "--dangerously-skip-permissions"
                 ]
             },
-            "startup_forms": []
+            "startup_forms": [
+                {
+                    "name": "folder-trust",
+                    "match": "Do you trust the contents of this project?",
+                    "keys": ["enter"],
+                    "verified": true
+                }
+            ]
         },
         {
             "id": "zcode",

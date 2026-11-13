@@ -95,11 +95,17 @@ def cmd_web(args):
             result = web.status(target)
         else:
             prompt, expect = drivers.check_prompt()
-            result = web.ask(target, args.prompt or prompt, args.expect or expect, chat=args.chat)
+            try:
+                result = web.ask(target, args.prompt or prompt, args.expect or expect, chat=args.chat,
+                                 files=args.file, repo=args.repo, mode=args.mode, timeout_s=args.timeout)
+            except (ValueError, FileNotFoundError) as exc:
+                result = {"ok": False, "error": str(exc)}
         good = result.get("ok", result.get("loggedIn"))
         failed += not good
         detail = result.get("reason") or result.get("error") or result.get("url") or ""
         print(f"  {target:16} {'OK ' if good else 'NO '} {detail}")
+        if result.get("taskStatus"):
+            print(f"  {'':16} task: {result['taskStatus']}")
         if result.get("reply"):
             print(f"  {'':16} reply: {result['reply'][:500]}")
     return 1 if failed else 0
@@ -111,20 +117,25 @@ SECTION_ALIASES = {"sections": "groups", "new-section": "new-group", "delete-sec
                    "unsection": "ungroup"}
 PROJECT_ALIASES = {"projects": "groups", "new-project": "new-group", "delete-project": "delete-group",
                    "unproject": "ungroup"}
+NOTEBOOK_ALIASES = {"notebooks": "groups", "new-notebook": "new-group", "delete-notebook": "delete-group",
+                    "unnotebook": "ungroup"}  # Gemini
 
 
 def cmd_chats(args):
     from orchestrator import web_chats
 
-    op = SECTION_ALIASES.get(args.op) or PROJECT_ALIASES.get(args.op) or args.op
+    op = SECTION_ALIASES.get(args.op) or PROJECT_ALIASES.get(args.op) or NOTEBOOK_ALIASES.get(args.op) or args.op
     word = web_chats.RECIPES.get(args.target, {}).get("groupWord", "section")
     if op == "delete-group" and not args.yes:
-        what = ("(refused while it has chats: ChatGPT deletes a project's chats with it)" if word == "project"
-                else "(its chats go back to Recents)")
+        what = {"chatgpt": "(refused while it has chats: ChatGPT deletes a project's chats with it)",
+                "grok": "(its chats stay as standalone chats)",
+                "gemini": "(refused while it has sources or chats: Gemini deletes them in Gemini and NotebookLM)",
+                }.get(args.target, "(its chats go back to Recents)")
         print(f"  deleting {word} {args.name!r} needs --yes {what}")
         return 1
     kwargs = {
-        "list": {"group": getattr(args, "group", None)}, "groups": {},
+        "list": {"group": getattr(args, "group", None), "status": getattr(args, "status", None)}, "groups": {},
+        "read": {"chat": getattr(args, "chat", None)},
         "search": {"query": getattr(args, "query", None), "kind": getattr(args, "kind", None)},
         "pin": {"chat": getattr(args, "chat", None)}, "unpin": {"chat": getattr(args, "chat", None)},
         "move": {"chat": getattr(args, "chat", None), "group": getattr(args, "group", None),
@@ -135,6 +146,8 @@ def cmd_chats(args):
     }[op]
     if op == "new-group" and kwargs["chat"]:  # create the group by moving the chat into it
         op, kwargs = "move", {"chat": kwargs["chat"], "group": kwargs["group"], "create": True}
+    if op == "groups":
+        kwargs["allGroups"] = True  # every group, not only the ones the sidebar shows
     result = web_chats.session(args.target, "list" if op == "groups" else op, **kwargs)
     if args.json:
         print(json.dumps(result, indent=1))
@@ -151,7 +164,14 @@ def cmd_chats(args):
             if op == "list":
                 for c in s["items"]:
                     extra = " · ".join(x for x in (c.get("status"), c.get("detail")) if x)
-                    print(f"      {c['title'][:60]:60} {c['url']}  {extra[:90]}".rstrip())
+                    print(f"      {c['title'][:60]:60} {c.get('url') or ''}  {extra[:90]}".rstrip())
+    elif op == "read" and result.get("ok"):
+        state = result.get("taskStatus") or result.get("status") or ("working" if result.get("working") else "idle")
+        print(f"  {result.get('title') or ''}  [{state}]  {result.get('url')}")
+        print(f"    last prompt: {(result.get('lastPrompt') or '')[:300]}")
+        print(f"    reply: {(result.get('reply') or '')[:1500]}")
+        if result.get("actions"):
+            print(f"    buttons: {', '.join(result['actions'])}")
     elif op == "search" and result.get("results") is not None:
         for c in result["results"]:
             print(f"  {c['type'] or '':13} {c['title'][:60]:60} {c['url'] or c['id']}")
@@ -345,6 +365,56 @@ def cmd_code(args):
     return 0 if result.get("ok") else 1
 
 
+def cmd_flow(args):
+    from orchestrator import web_flow
+
+    kw = {"timeout_s": args.timeout}
+    if args.op == "download":
+        result = web_flow.download(args.project, args.media, to=args.to, quality=args.quality)
+    elif args.op == "upload":
+        result = web_flow.upload(args.project, args.files, timeout_s=args.timeout)
+    elif args.op == "delete":
+        if not args.yes:
+            print("  NO deleting a project is permanent (its clips, ingredients and prompts); add --yes")
+            return 1
+        result = web_flow.session("delete", project=args.project, **kw)
+    else:
+        if args.op in ("read", "options"):
+            kw["project"] = args.project
+        if args.op == "read":
+            kw["mediaType"] = args.type
+        if args.op == "new":
+            kw["title"] = args.title
+        result = web_flow.session(args.op, **kw)
+    if args.json:
+        print(json.dumps(result, indent=1))
+        return 0 if result.get("ok") else 1
+    if not result.get("ok"):
+        print(f"  NO {result.get('reason') or result.get('error')}")
+        for c in result.get("choices") or []:
+            print(f"      {c}")
+    for p in result.get("projects") or []:
+        print(f"  {p['title'][:40]:40} {p['id']}")
+    if result.get("title") is not None and result.get("url"):
+        print(f"  project {result['title']}  {result['url']}  ({len(result.get('media') or [])} media)")
+        for m in result.get("media") or []:
+            print(f"    {m['index']:>3}  {m['type'] or '?':6} {m['name'][:60]}")
+    if result.get("path"):
+        print(f"  saved {result['path']}  ({result['quality']})")
+    if result.get("uploaded"):
+        print(f"  uploaded {result['uploaded']} file(s); newest media are listed first")
+    if result.get("deleted"):
+        print(f"  deleted project {result['deleted']}")
+    if args.op == "options" and result.get("ok"):
+        for r in result.get("confirm") or []:
+            print(f"  confirm before generating: {r['label']}{' (current)' if r['selected'] else ''}  {r['detail']}")
+        for g in result.get("toggles") or []:
+            print("  " + "  ".join(f"[{t['label']}]" if t["selected"] else t["label"] for t in g))
+        for d in result.get("dropdowns") or []:
+            print(f"  model {d['current']} <- {' | '.join(d['choices'])}")
+    return 0 if result.get("ok") else 1
+
+
 def cmd_accounts(args):
     from orchestrator import accounts, config
 
@@ -399,15 +469,22 @@ def main(argv=None):
     p.add_argument("--prompt")
     p.add_argument("--expect", help="regex the reply must match")
     p.add_argument("--chat", help="ask: continue this chat (id, URL or exact title) instead of a new one")
+    p.add_argument("--file", action="append", help="ask: attach a local file (repeatable; gemini; zip a folder)")
+    p.add_argument("--repo", help="ask: attach a GitHub repository or branch URL (gemini 'Import code')")
+    p.add_argument("--mode", help="ask: composer mode, e.g. gemini chat|task")
+    p.add_argument("--timeout", type=int, default=120, help="ask: seconds to wait for the reply")
     p.set_defaults(func=cmd_web)
 
     p = sub.add_parser("chats", help="chat/session list of a web app: list, search, pin, sections/projects (groups)")
-    p.add_argument("target", help="claude (chats), claude-code-web (Code sessions) or chatgpt (groups are projects)")
+    p.add_argument("target", help="claude (chats), claude-code-web (Code sessions), chatgpt or grok (projects), gemini (notebooks)")
     p.add_argument("--json", action="store_true")
     ops = p.add_subparsers(dest="op", required=True)
-    alias = {v: [k, next(p for p, g in PROJECT_ALIASES.items() if g == v)] for k, v in SECTION_ALIASES.items()}
+    alias = {v: [k, next(p for p, g in PROJECT_ALIASES.items() if g == v), next(n for n, g in NOTEBOOK_ALIASES.items() if g == v)]
+             for k, v in SECTION_ALIASES.items()}
     o = ops.add_parser("list", help="sidebar sections (Pinned, your sections, Recents) and their items")
-    o.add_argument("--group", "--section", "--project", dest="group", help="only this section (a ChatGPT project: all its chats)")
+    o.add_argument("--group", "--section", "--project", "--notebook", dest="group",
+                   help="only this section (a ChatGPT project or Gemini notebook: all its chats)")
+    o.add_argument("--status", help="gemini: only chats whose task state is this, e.g. 'Needs attention'")
     o = ops.add_parser("groups", aliases=alias["groups"], help="list the sections / projects (groups)")
     o.set_defaults(group=None)
     o = ops.add_parser("search", help="search chats (and artifacts, sessions, projects)")
@@ -416,6 +493,7 @@ def main(argv=None):
     for name in ("pin", "unpin"):
         ops.add_parser(name).add_argument("chat", help="id, URL or exact title")
     ops.add_parser("ungroup", aliases=alias["ungroup"], help="take it out of its section").add_argument("chat")
+    ops.add_parser("read", help="gemini: a chat's last prompt, reply and task state").add_argument("chat")
     o = ops.add_parser("move", help="move a chat or session into a section")
     o.add_argument("chat")
     o.add_argument("group", metavar="section")
@@ -486,6 +564,32 @@ def main(argv=None):
     o.add_argument("--prompt", required=True)
     o.add_argument("--wait", action="store_true", help="wait for the coordinator's reply")
     p.set_defaults(func=cmd_code)
+
+    p = sub.add_parser("flow", help="Google Flow: projects, media, downloads, agent options (generation is not driven here)")
+    p.add_argument("--json", action="store_true")
+    p.add_argument("--timeout", type=int, default=180, help="seconds to wait for a download")
+    ops = p.add_subparsers(dest="op", required=True)
+    ops.add_parser("status", help="is the Google login still good for Flow")
+    ops.add_parser("projects", help="list projects")
+    o = ops.add_parser("new", help="create an empty project (free)")
+    o.add_argument("--title")
+    o = ops.add_parser("read", help="media in a project, newest first")
+    o.add_argument("project", help="id, URL or exact title")
+    o.add_argument("--type", choices=["video", "image"], help="only this media type")
+    o = ops.add_parser("download", help="save one media (original size is free; --quality 1080p/4k spend credits)")
+    o.add_argument("project")
+    o.add_argument("media", help="index from `read` or exact media name")
+    o.add_argument("--to", default="temp/flow", help="folder to save into")
+    o.add_argument("--quality", default="original", choices=["original", "gif", "1080p", "4k"])
+    o = ops.add_parser("upload", help="upload reference images/videos into a project (free)")
+    o.add_argument("project")
+    o.add_argument("files", nargs="+", help="local image or video files")
+    o = ops.add_parser("options", help="the agent's settings and every choice they offer (reads only; never saves)")
+    o.add_argument("--project", help="project to open (default: the first one)")
+    o = ops.add_parser("delete", help="delete a project permanently")
+    o.add_argument("project")
+    o.add_argument("--yes", action="store_true", help="required: the clips, ingredients and prompts are gone for good")
+    p.set_defaults(func=cmd_flow)
 
     p = sub.add_parser("accounts", help="list configured accounts, validate .env, pick the next account")
     p.add_argument("--agent", help="show which account would be used next for this agent")

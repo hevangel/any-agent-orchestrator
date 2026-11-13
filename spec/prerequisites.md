@@ -51,6 +51,17 @@ curl -fsSL https://herdr.dev/install.sh | sh     # Linux, macOS, WSL (same comma
 
 On Windows, follow the instructions at <https://herdr.dev>; there is no scripted installer in `agents.json` yet. Update with `herdr update`.
 
+### Agent skills for herdr and playwright-cli
+
+herdr and playwright-cli each ship their own agent skill inside the tool (`herdr --skill` prints it; `playwright-cli --help` names the bundled `SKILL.md`). After installing or updating either tool, dump both into `.agents/skills/` so agents load them as normal skills instead of guessing the commands:
+
+```sh
+./scripts/install_skills.sh        # Linux, macOS, WSL, Git Bash
+./scripts/install_skills.ps1       # Windows PowerShell
+```
+
+This writes `.agents/skills/herdr/SKILL.md` and `.agents/skills/playwright-cli/` (with its `references/`). The directory is generated per machine and gitignored; re-run the script after a tool update. Claude Code reads `.claude/skills/`, so on a Claude Code machine copy or link those two folders there as well.
+
 ## Rules
 
 - **Always run Python through uv**: `uv run <command>`, `uv sync`, `uv add <package>`, `uv tool install <tool>`. Never call `python`, `pip` or `pip install` directly, and never create a virtualenv by hand. The one exception is what the collectors send to remote machines: `probe.py` and `usage_scan.py` are piped to `python3` over SSH, where uv is not installed. That is why they must stay standard-library only.

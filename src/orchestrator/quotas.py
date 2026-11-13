@@ -3,12 +3,15 @@
 Sources, best first; a provider is taken from the first source that reports it:
   clanker-usage --json   usage-v1 documents (stable schema), 10 providers incl. Z.ai and Muse
   quota-cli usage --json Copilot, Grok, Kiro and others clanker does not cover
+  Agent status screens  Claude /usage and Codex /status through herdr
   Codex session logs     rate_limits recorded in ~/.codex/sessions (no network call)
 """
 
 import glob
 import json
 import os
+import platform
+import shutil
 from datetime import datetime, timezone
 
 from orchestrator.machines import _json, _run
@@ -97,23 +100,30 @@ def from_codex_logs(home=None):
 
 def collect():
     accounts, errors = [], {}
-    ok, out, err = _run(["clanker-usage", "--json", "--max-age", "300"], timeout=90)
+    # Windows SSL monitors can point this variable at a named pipe, crashing
+    # OpenSSL in external Python collectors just as they do in our own HTTP client.
+    tool_env = {k: v for k, v in os.environ.items() if k.upper() != "SSLKEYLOGFILE"}
+    ok, out, err = _run(["clanker-usage", "--json", "--max-age", "300"], timeout=90, env=tool_env)
     if out.strip():
         accounts += from_clanker(_json(out))
     if not ok:
         errors["clanker-usage"] = err
-    ok, out, err = _run(["quota-cli", "usage", "--json"], timeout=90)
+    ok, out, err = _run(["quota-cli", "usage", "--json"], timeout=90, env=tool_env)
     if out.strip():
         have = {a["provider"] for a in accounts}
         accounts += [a for a in from_quota_cli(_json(out)) if a["provider"] not in have]
     if not ok:
         errors["quota-cli"] = err
-    if "codex" not in {a["provider"] for a in accounts}:
+    accounts += collect_configured_accounts(errors)
+    accounts = collect_cursor_windows(accounts, errors, tool_env)
+    accounts = collect_screen_accounts(accounts, errors)
+    if not any(a["provider"] == "codex" and not a.get("aao_account") and a.get("windows") for a in accounts):
         try:
-            accounts += from_codex_logs()
+            fallback = from_codex_logs()
+            if fallback:
+                accounts = [a for a in accounts if a["provider"] != "codex" or a.get("aao_account")] + fallback
         except (OSError, ValueError) as exc:
             errors["codex-logs"] = str(exc)
-    accounts += collect_configured_accounts(errors)
     return {"schema": "quotas-v1", "accounts": accounts, "errors": errors,
             "collected_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
 
@@ -134,6 +144,7 @@ def collect_configured_accounts(errors):
         if not var or not account.home or "local" not in account.hosts:
             continue
         env = {**os.environ, var: account.expanded_home}
+        env.pop("SSLKEYLOGFILE", None)
         ok, text, err = _run(["clanker-usage", account.agent, "json", "--max-age", "300"], timeout=90, env=env)
         docs = _json(text) if text.strip() else None
         if isinstance(docs, dict):
@@ -145,6 +156,63 @@ def collect_configured_accounts(errors):
         if not ok:
             errors[f"clanker-usage:{account.id}"] = err
     return out
+
+
+def collect_screen_accounts(accounts, errors):
+    """Fill missing quota windows using installed agents' built-in status screens."""
+    from orchestrator.config import Settings, catalog
+    from orchestrator.config import accounts as load_accounts
+    from orchestrator.quota_screens import read_quota
+
+    known = catalog()
+    enabled = Settings().list("AAO_QUOTA_SCREEN_AGENTS", [k for k, m in known.items() if m.get("quota_screen")])
+    if enabled == ["none"]:
+        return accounts
+    configured = load_accounts()
+    for cli in enabled:
+        if cli not in known or not known[cli].get("quota_screen"):
+            errors[f"{cli}-screen"] = "no supported quota_screen in agents.json"
+            continue
+        if not shutil.which(known[cli]["binary"]):
+            continue
+        candidates = [None] + [a for a in configured if a.agent == cli and a.home and "local" in a.hosts and a.tier != "api"]
+        for account in candidates:
+            aid = account.id if account else None
+            existing = [a for a in accounts if a["provider"] == provider_id(cli) and a.get("aao_account") == aid]
+            if not known[cli]["quota_screen"].get("prefer") and any(
+                a.get("windows") and a.get("status") in ("live", "cached") for a in existing
+            ):
+                continue
+            result = read_quota(cli, account)
+            if result["accounts"]:
+                accounts = [a for a in accounts if a not in existing] + result["accounts"]
+            if result["error"]:
+                errors[f"{cli}-screen" + (f":{aid}" if aid else "")] = result["error"]
+    return accounts
+
+
+def collect_cursor_windows(accounts, errors, tool_env):
+    """Use Cursor CLI's native Windows config directory, not the IDE's token store.
+
+    clanker-usage defaults to ~/.config/cursor even on Windows. Cursor CLI writes
+    %APPDATA%/Cursor/auth.json there; pass XDG_CONFIG_HOME for this one provider.
+    """
+    existing = [a for a in accounts if a["provider"] == "cursor"]
+    if any(a.get("windows") and a.get("status") in ("live", "cached") for a in existing):
+        return accounts
+    if platform.system() != "Windows" or not os.environ.get("APPDATA") or not shutil.which("clanker-usage"):
+        return accounts
+    if tool_env.get("XDG_CONFIG_HOME"):
+        return accounts
+    env = {**tool_env, "XDG_CONFIG_HOME": os.environ["APPDATA"]}
+    ok, text, error = _run(["clanker-usage", "cursor", "json", "--max-age", "300"], timeout=90, env=env)
+    doc = _json(text)
+    rows = from_clanker([doc]) if isinstance(doc, dict) else []
+    if rows:
+        accounts = [a for a in accounts if a not in existing] + rows
+    if not ok:
+        errors["cursor-usage"] = error or (rows[0].get("error") if rows else "Cursor quota read failed")
+    return accounts
 
 
 def project(history, account_key, window_name, resets_at, now_epoch):
