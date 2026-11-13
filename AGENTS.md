@@ -83,6 +83,7 @@ uv run aao codex threads|read <t>|new --prompt .. [--env --work-in --permission 
 uv run aao codex attention [<t>] [--json]|answer <t> --choice <option|button>|--text <answer>   # questions are reported to the master agent; secrets never typed
 uv run aao code sessions|read <s>|send <s> --prompt ..|new --prompt .. [--repo --env --permission]|wait <s> [--wait]   # Claude Code on the web (web_code.py)
 uv run aao code projects|project <name>|project-send <name> --prompt ..   # Projects (beta)
+uv run aao flow status|projects|new [--title]|read <p> [--type]|download <p> <media> [--to --quality]|upload <p> <file>..|options|delete <p> --yes   # Google Flow (web_flow.py); generation not driven, upscales spend credits
 uv run aao web close [--all]              # browsers stay open between commands (AAO_WEB_KEEP_OPEN=0 to close each time)
 uv run aao serve                          # dashboard at http://127.0.0.1:8765/ + background collectors
 uv run aao collect [machines|quotas|usage]   # one collector, summary to stdout (--json for the document)

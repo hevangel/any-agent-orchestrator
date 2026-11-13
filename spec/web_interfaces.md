@@ -23,6 +23,7 @@ Selectors below come from the reference adapters at their pinned submodule commi
 | Remote Claude Code | `https://claude.ai/code` | `[data-testid='code-prompt-input']` | **Studied and scripted, see "Claude Code on the web"** | `web_code.py`; shares the `claude` login |
 | ChatGPT | `https://chatgpt.com/` | `[contenteditable='true'][aria-label='Ask ChatGPT']` (`#prompt-textarea` is gone) | **Studied and scripted (playwright-cli), see below** | `web.py` `TARGETS["chatgpt"]`, `web_chats_chatgpt.py` |
 | Remote Codex | `https://chatgpt.com/` in **Codex mode** (threads `/local/<id>`) | contenteditable "Do anything" | **Studied (reading and questions), see "Codex on chatgpt.com"** | `web_codex.py`; shares the `chatgpt` login |
+| Google Flow | `https://flow.google.com/` | project page: agent box "What do you want to create?" | **Studied and scripted (projects, media, downloads, agent options; generation not driven), see "Google Flow"** | `web_flow.py`; shares the `gemini` login |
 | Z.ai coder | `https://chat.z.ai/` | discover with `snapshot` | discover with `snapshot` | none yet: use MuseBridge's auto-discovery approach |
 
 ## Scripted recipes (`src/orchestrator/web.py`)
@@ -131,6 +132,50 @@ Build, debug, and ship": match the first `innerText` line (Playwright `hasText` 
 - Thread page: turns `[data-turn-key]`; user `[data-user-message-bubble='true']`; each turn's answer `[data-local-conversation-final-assistant='true']`; "Worked for …" and "Edited N files +A -D" per turn (read from the last turn only). Some threads show no messages on the web at all.
 - **Questions** (Codex "request input"), above the composer in `[data-request-input-activity-root]`: title, `n of N` with `Previous question` / `Next question` arrows, `Dismiss` (`[data-request-input-dismiss]`), a body and action buttons in `[role=presentation]` (Skip, Next, Finish review). Multiple choice: the question text is a markdown `<p>`, options are `role=radio` buttons whose `aria-label` is the clean label (their text starts with a hidden number), an "Or write your own response" box, and `[data-question-actions]` Skip / Send; clicking an option submits a single-choice question at once. Other bodies seen: label/value rows with an edit button named after the label ("Install script: Not set"), and `[role=group][aria-label=<NAME>]` key/value groups for secrets (value input `type=password`) and environment variables, each with a Scope menu and, for secrets, allowed domains. Next / Finish review stay disabled until required values are filled. Paging with the arrows changes nothing. The environment badge "Needs attention N" counts the steps left; when the review is closed, `attention` opens it (view only) to read them. Next on a step does save it: after Next on step 1 the badge went from 3 to 2.
 - **The driver reports, the master agent decides.** `read` and `attention` return every step (title, description, items, fields with `filled` and never a secret's value, options, actions with `enabled`, `missing`, `humanOnly`). `answer --choice` presses one named option or action (then Send if still needed), refuses a disabled one and names the fields it waits for; `answer --text` writes only into the question's own free-text box. It never types into a secret or value field: those are left to a human, and the master agent shows them on the dashboard as attention required.
+
+## Google Flow (`src/orchestrator/web_flow.py`)
+
+`flow.google.com` (AI studio for video and images), studied 2026-11-13. Same Google account as Gemini, so the `flow` target uses the `gemini` profile and browser session (`aao web login gemini`; the site was `labs.google/fx/tools/flow` and now redirects). It is not a chat: a project is a grid of media plus an **agent** panel ("What do you want to create?") that asks before it generates. This driver covers everything that costs nothing; generation is deliberately left out until a credit policy is chosen.
+
+```sh
+uv run aao flow status                                  # is the Google login still good
+uv run aao flow projects                                # id, title (default title is the creation date)
+uv run aao flow new [--title "..."]                     # empty project, free
+uv run aao flow read <project> [--type video|image]     # media, newest first: index, type, name, thumbnail
+uv run aao flow download <project> <media> [--to DIR] [--quality original|gif|1080p|4k]
+uv run aao flow options [--project P]                   # live agent settings and every choice; never saves
+uv run aao flow upload <project> <file>...                # reference images/videos into the project library (free)
+uv run aao flow delete <project> --yes                  # PERMANENT: clips, ingredients and prompts are gone
+```
+
+`<project>` is an id, a project URL or an exact title (one old project has the id `..._backfill`, so ids are not always uuids). `<media>` is the 1-based index from `read` (the tiles carry no id in the DOM) or the exact media name. Every command accepts `--json` before the sub-command (`aao flow --json read ...`).
+
+**Credits.** Free: read, create, rename, upload, original-size download, GIF download, delete. Spends credits: generating (agent prompt) and the upscaled downloads. `download` is `--quality original` unless told otherwise; `1080p` is "Upscaled, 5 credits" and `4k` is "Upscaled" (also credits). A media's download menu is `More options > Download > 270p Animated GIF | 720p Original size | 1080p Upscaled | 4K Upscaled`; images have no GIF.
+
+### Options the agent can choose from
+
+Read from the live page; `aao flow options` reads them again, so trust it over this list when they differ.
+
+| Setting | Choices |
+| --- | --- |
+| Confirm before generating | `Always` (default: the agent asks before it generates) / `Never` (generates and spends credits at once) |
+| Image aspect ratio | `16:9` (default), `4:3`, `1:1`, `3:4`, `9:16` |
+| Image count per prompt | `x1`, `x2` (default), `x3`, `x4` |
+| Image model | `Nano Banana Pro`, `Nano Banana 2 Lite`, `Nano Banana 2.1` (default) |
+| Video aspect ratio | `16:9` (default), `9:16` |
+| Video count per prompt | `x1` (default), `x2`, `x3`, `x4` |
+| Video model | `Omni 1.2 Flash` (default), `Omni 1.1 Flash` (leaving 5 Dec), `Veo 3.1 - Lite`, `Veo 3.1 - Fast` (leaving 5 Dec), `Veo 3.1 - Quality` (leaving 5 Dec) |
+
+These are the agent's per-project defaults in the panel's **Settings**, applied with **Save**; `options` only opens the panel and closes it without saving. The media grid's filter menu offers: type (Images, Videos, Collections, Scenes, Characters), aspect ratio (Landscape, Portrait, Freeform), created (Generated, Uploaded, Favourites), duration (3s..15s), resolution (720p, 360p) and sort (Newest, Oldest). A media's **More options** menu: Favourite, Reuse prompt, Add to scene, Add to prompt, Download, Copy, Rename, Share, Publish to YouTube, Set project cover, Flag output, Move to bin. Sharing, publishing and the bin are not driven.
+
+### Page notes
+
+- Home: project cards `a[href^='/project/<id>']` with "Edit project title" and "Delete project" buttons; "New project" creates one and the URL becomes `/project/<id>`. Delete asks "Are you sure ... permanently deleted" with a `Delete project` button.
+- Project page: media in `flow-grid-tile-container > flow-<type>-tile`; the title is an always-present `textbox "Editable text"` (an h1 only while not edited); a populated project shows the agent panel on the right, an empty one shows the box at the bottom. Clicking a tile opens a viewer without changing the URL.
+- Upload: top bar `Add media menu` (+) > `Upload` opens the OS file chooser. playwright-cli reports it as a modal state (every other command fails with "does not handle the modal state" until it is filled) and `playwright-cli upload <file>` fills it, one file per call, so `aao flow upload` runs open / upload / wait-for-the-new-tile once per file. An uploaded image becomes an `image` tile named after the file, listed newest first; the agent can use it as a reference ("ingredient"). The same menu offers New collection, Create character and New scene (not driven).
+- A cookie banner ("flow.google.com uses cookies") overlaps the bottom; the driver presses `No thanks`.
+- `run-code` has no `URL` global (parse `page.url()` by hand) and the home page loads slowly: the `flow` target settles 12 s before the login check.
+- Tests: `tests/e2e/test_web_flow.py` is read-only plus one free download; project create, upload and delete were checked by hand on throwaway projects.
 
 ## Turn protocol (every web target)
 

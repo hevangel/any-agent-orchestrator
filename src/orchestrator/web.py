@@ -83,6 +83,13 @@ TARGETS = {
              "assistant": "[data-testid='assistant-message']",
              "busy": ["button[aria-label^='Stop']"],
              "chat": True},
+    # Google Flow (video/image studio, aao flow / web_flow.py): same Google account, so it shares the
+    # gemini profile and browser session. Not a chat: only the login check (home has "New project").
+    "flow": {"url": "https://flow.google.com/", "profile": "gemini",
+             "composer": ["button:has-text('New project')", "button[aria-label='Add media menu']",
+                          "button:has-text('Add ingredients')"],  # home, or a project page left open
+             "settle": 12000,  # the home page loads slowly
+             "chat": False},
     "muse": {"url": "https://muse.ai/", "composer": ["textarea[placeholder='Message']", "textarea",
                                                      "div[contenteditable='true']"], "chat": True},
     "zai": {"url": "https://chat.z.ai/", "composer": ["textarea", "div[contenteditable='true']"], "chat": True},
@@ -363,6 +370,7 @@ def _run_page(target, prompt=None, expect=None, timeout_s=120, settle_ms=4000, p
         mode = cfg["modes"][0]  # the page keeps the last mode used (gemini: a Task), so set the default
     if mode and mode.lower() not in cfg.get("modes", []):
         raise ValueError(f"{target} has no {mode!r} mode (have: {', '.join(cfg.get('modes', [])) or 'none'})")
+    settle_ms = max(settle_ms, cfg.get("settle", 0)) if not passive else settle_ms
     paths = []
     for f in files or []:
         path = Path(f).expanduser().resolve()

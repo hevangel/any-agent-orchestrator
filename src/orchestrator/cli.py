@@ -365,6 +365,56 @@ def cmd_code(args):
     return 0 if result.get("ok") else 1
 
 
+def cmd_flow(args):
+    from orchestrator import web_flow
+
+    kw = {"timeout_s": args.timeout}
+    if args.op == "download":
+        result = web_flow.download(args.project, args.media, to=args.to, quality=args.quality)
+    elif args.op == "upload":
+        result = web_flow.upload(args.project, args.files, timeout_s=args.timeout)
+    elif args.op == "delete":
+        if not args.yes:
+            print("  NO deleting a project is permanent (its clips, ingredients and prompts); add --yes")
+            return 1
+        result = web_flow.session("delete", project=args.project, **kw)
+    else:
+        if args.op in ("read", "options"):
+            kw["project"] = args.project
+        if args.op == "read":
+            kw["mediaType"] = args.type
+        if args.op == "new":
+            kw["title"] = args.title
+        result = web_flow.session(args.op, **kw)
+    if args.json:
+        print(json.dumps(result, indent=1))
+        return 0 if result.get("ok") else 1
+    if not result.get("ok"):
+        print(f"  NO {result.get('reason') or result.get('error')}")
+        for c in result.get("choices") or []:
+            print(f"      {c}")
+    for p in result.get("projects") or []:
+        print(f"  {p['title'][:40]:40} {p['id']}")
+    if result.get("title") is not None and result.get("url"):
+        print(f"  project {result['title']}  {result['url']}  ({len(result.get('media') or [])} media)")
+        for m in result.get("media") or []:
+            print(f"    {m['index']:>3}  {m['type'] or '?':6} {m['name'][:60]}")
+    if result.get("path"):
+        print(f"  saved {result['path']}  ({result['quality']})")
+    if result.get("uploaded"):
+        print(f"  uploaded {result['uploaded']} file(s); newest media are listed first")
+    if result.get("deleted"):
+        print(f"  deleted project {result['deleted']}")
+    if args.op == "options" and result.get("ok"):
+        for r in result.get("confirm") or []:
+            print(f"  confirm before generating: {r['label']}{' (current)' if r['selected'] else ''}  {r['detail']}")
+        for g in result.get("toggles") or []:
+            print("  " + "  ".join(f"[{t['label']}]" if t["selected"] else t["label"] for t in g))
+        for d in result.get("dropdowns") or []:
+            print(f"  model {d['current']} <- {' | '.join(d['choices'])}")
+    return 0 if result.get("ok") else 1
+
+
 def cmd_accounts(args):
     from orchestrator import accounts, config
 
@@ -514,6 +564,32 @@ def main(argv=None):
     o.add_argument("--prompt", required=True)
     o.add_argument("--wait", action="store_true", help="wait for the coordinator's reply")
     p.set_defaults(func=cmd_code)
+
+    p = sub.add_parser("flow", help="Google Flow: projects, media, downloads, agent options (generation is not driven here)")
+    p.add_argument("--json", action="store_true")
+    p.add_argument("--timeout", type=int, default=180, help="seconds to wait for a download")
+    ops = p.add_subparsers(dest="op", required=True)
+    ops.add_parser("status", help="is the Google login still good for Flow")
+    ops.add_parser("projects", help="list projects")
+    o = ops.add_parser("new", help="create an empty project (free)")
+    o.add_argument("--title")
+    o = ops.add_parser("read", help="media in a project, newest first")
+    o.add_argument("project", help="id, URL or exact title")
+    o.add_argument("--type", choices=["video", "image"], help="only this media type")
+    o = ops.add_parser("download", help="save one media (original size is free; --quality 1080p/4k spend credits)")
+    o.add_argument("project")
+    o.add_argument("media", help="index from `read` or exact media name")
+    o.add_argument("--to", default="temp/flow", help="folder to save into")
+    o.add_argument("--quality", default="original", choices=["original", "gif", "1080p", "4k"])
+    o = ops.add_parser("upload", help="upload reference images/videos into a project (free)")
+    o.add_argument("project")
+    o.add_argument("files", nargs="+", help="local image or video files")
+    o = ops.add_parser("options", help="the agent's settings and every choice they offer (reads only; never saves)")
+    o.add_argument("--project", help="project to open (default: the first one)")
+    o = ops.add_parser("delete", help="delete a project permanently")
+    o.add_argument("project")
+    o.add_argument("--yes", action="store_true", help="required: the clips, ingredients and prompts are gone for good")
+    p.set_defaults(func=cmd_flow)
 
     p = sub.add_parser("accounts", help="list configured accounts, validate .env, pick the next account")
     p.add_argument("--agent", help="show which account would be used next for this agent")
