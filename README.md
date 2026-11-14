@@ -12,8 +12,6 @@ Our manifesto:
 4. **The Dropbox mailbox is the messaging layer between AIs.** Agents exchange messages through a shared folder, using the same protocol on Box when preferred.
 5. **The GitHub repository is the source of truth.** Code, specs and decisions are committed and pushed so every agent works from the same durable record.
 
-> **Status:** early. The fleet dashboard works today; the plugin that hands out the work is not written yet. The repo also holds the agent catalog, a Docker environment, the coordination protocols and the design specs.
-
 ## The fleet dashboard
 
 ```bash
@@ -132,6 +130,10 @@ To work on a different repository, set `WORKSPACE=../your-repo` in `.env`.
 Some logins live in your operating system's password store rather than in a folder: Claude Code on macOS uses the Keychain, and `gh` on Windows may use Credential Manager. The container can't see those. Put a token in `.env` instead (for example `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token`, or `GH_TOKEN`), or log in once inside the container.
 
 The container doesn't include Claude in Chrome or computer use. They need your own Chrome and desktop.
+
+## Status
+
+Early. The fleet dashboard works today; the plugin that hands out the work is not written yet. The repo also holds the agent catalog, a Docker environment, the coordination protocols and the design specs.
 
 ## Reference projects
 
