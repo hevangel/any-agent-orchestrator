@@ -438,6 +438,50 @@ def cmd_free_tokens(args):
     return 1 if errors else 0
 
 
+def cmd_projects(args):
+    from orchestrator import projects
+
+    if args.op == "validate":
+        errors = projects.validate_all()
+        print("\n".join(errors) or "projects/*.json OK")
+        return 1 if errors else 0
+    if args.op == "list":
+        for doc in projects.load_all():
+            gp = doc["github_project"]
+            repos = projects.controlled_repos(doc)
+            print(f"  {doc['id']:28} {gp.get('url') or '(no GitHub Project yet)':45} {len(repos)} repo(s): {', '.join(repos)}")
+        return 0
+    doc = projects.load(args.project)
+    if args.op == "sync":
+        warnings = projects.sync(doc)
+        repos = projects.controlled_repos(doc)
+        for path, node in projects.iter_repos(doc["repo"]):
+            ext = len(node.get("external") or [])
+            print(f"  {path or '.':40} {node.get('name') or node.get('url')}{f'  ({ext} external)' if ext else ''}")
+        for w in warnings:
+            print("  ! " + w)
+        if args.dry_run:
+            print(f"  {len(repos)} owned repo(s); not written (--dry-run)")
+        else:
+            projects.save(doc)
+            print(f"  {len(repos)} owned repo(s); wrote {projects.config_path(doc['id']).relative_to(projects.ROOT)}")
+        return 0
+    if args.op == "setup":
+        projects.setup(doc, dry_run=args.dry_run)
+        if not args.dry_run:
+            projects.save(doc)
+        return 0
+    if args.op == "status":
+        counts = projects.project_status(doc)
+        if counts is None:
+            print(f"  {doc['id']} has no GitHub Project yet: aao projects setup {doc['id']}")
+            return 1
+        for name, n in sorted(counts.items(), key=lambda kv: -kv[1]):
+            print(f"  {name:16} {n}")
+        return 0
+    return 1
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="aao", description="any-agent-orchestrator tools")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -595,6 +639,19 @@ def main(argv=None):
     p.add_argument("--agent", help="show which account would be used next for this agent")
     p.add_argument("--host", default="local")
     p.set_defaults(func=cmd_accounts)
+
+    p = sub.add_parser("projects", help="managed projects (projects/*.json): list, validate, sync repo tree, set up the GitHub Project")
+    ops = p.add_subparsers(dest="op", required=True)
+    ops.add_parser("list", help="configured projects, their GitHub Project and owned repos")
+    ops.add_parser("validate", help="check every projects/*.json")
+    o = ops.add_parser("sync", help="rebuild a config's repo tree from the live .gitmodules on GitHub")
+    o.add_argument("project", help="project id (file name without .json)")
+    o.add_argument("--dry-run", action="store_true")
+    o = ops.add_parser("setup", help="create or complete the GitHub Project: fields, labels, linked repos, every issue added")
+    o.add_argument("project")
+    o.add_argument("--dry-run", action="store_true", help="print what would change")
+    ops.add_parser("status", help="live item counts by Status").add_argument("project")
+    p.set_defaults(func=cmd_projects)
 
     p = sub.add_parser("free-tokens", help="free token list tools")
     p.add_argument("action", choices=["validate"])

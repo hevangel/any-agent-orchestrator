@@ -47,6 +47,20 @@ def _scheduler(intervals):
         time.sleep(5)
 
 
+def projects_payload():
+    """projects/*.json as committed, with the external/ rule checked; no network calls."""
+    from orchestrator import projects
+
+    out = []
+    for doc in projects.load_all():
+        try:
+            warnings = projects.tree_warnings(doc) + projects.validate(doc, f"{doc.get('id')}.json")
+        except (KeyError, TypeError, AttributeError) as exc:
+            warnings = [f"unreadable config: {exc}"]
+        out.append({**doc, "warnings": warnings})
+    return {"projects": out}
+
+
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(DASHBOARD_DIR), **kwargs)
@@ -69,6 +83,8 @@ class Handler(SimpleHTTPRequestHandler):
             name = url.path[5:]
             if name == "status":
                 return self._json(_status)
+            if name == "projects":
+                return self._json(projects_payload())
             if name in API_FILES:
                 data = read_json(API_FILES[name])
                 return self._json(data if data is not None else {"missing": True}, 200)
