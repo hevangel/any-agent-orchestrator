@@ -4,6 +4,13 @@ Let one AI agent direct a whole team of other AI agents: the coding CLIs in your
 
 You give the work to one coordinating agent. It splits the work into GitHub issues, hands each piece to whichever agent suits it, such as Claude Code, Codex, Cursor, Gemini, Grok, ChatGPT or Muse, and tracks progress on a GitHub Project board. The agents can message each other through a shared Dropbox or Box folder.
 
+Our manifesto:
+
+1. **AI is a fungible commodity, wherever it runs.** Choose the model and machine that best fit the work, regardless of vendor or location.
+2. **The agent is an illusion: compute resources plus LLM calls.** Treat it as a resource to compose, allocate and replace.
+3. **GitHub issues and Projects are the orchestration layer.** Tasks, dependencies, ownership and progress live in a shared, durable work queue.
+4. **The Dropbox mailbox is the messaging layer between AIs.** Agents exchange messages through a shared folder, using the same protocol on Box when preferred.
+
 > **Status:** early. The fleet dashboard works today; the plugin that hands out the work is not written yet. The repo also holds the agent catalog, a Docker environment, the coordination protocols and the design specs.
 
 ## The fleet dashboard
