@@ -10,6 +10,7 @@ Our manifesto:
 2. **The agent is an illusion: compute resources plus LLM calls.** Treat it as a resource to compose, allocate and replace.
 3. **GitHub issues and Projects are the orchestration layer.** Tasks, dependencies, ownership and progress live in a shared, durable work queue.
 4. **The Dropbox mailbox is the messaging layer between AIs.** Agents exchange messages through a shared folder, using the same protocol on Box when preferred.
+5. **The GitHub repository is the source of truth.** Code, specs and decisions are committed and pushed so every agent works from the same durable record.
 
 > **Status:** early. The fleet dashboard works today; the plugin that hands out the work is not written yet. The repo also holds the agent catalog, a Docker environment, the coordination protocols and the design specs.
 
