@@ -13,8 +13,9 @@ uv sync
 uv run aao serve        # open http://127.0.0.1:8765/
 ```
 
-One page, five tabs, refreshed in the background:
+One page, six tabs, refreshed in the background:
 
+- **Projects:** each managed project's GitHub Project link, parent repository, nested submodules and external references, read from `projects/*.json`.
 - **Machines:** CPU, memory and disk for this computer and every machine you've added to herdr, plus which agents are running on each. Cloud agents run by the AI labs are listed separately with their tasks.
 - **Quotas:** how much of each subscription's 5-hour, weekly and monthly allowance is left, when it resets, and a warning if you're on track to run out before the reset.
 - **Tokens & cost:** daily token use split into fresh input, cache writes, cache reads and output, and what that use would have cost at public API prices, per day, per model and per session.
@@ -72,6 +73,26 @@ Website agents use your existing logins. You sign in once yourself, and the orch
 Releases go out once the agents have built and reviewed the work. Humans test after the release, and a human marks a task Human-reviewed once they have used it. Details: [spec/github_project.md](spec/github_project.md).
 
 **Mailbox: direct messages between agents.** Agents leave each other messages as small files in a shared Dropbox or Box folder. Files are only ever added, never edited, so two agents can't overwrite each other. Details: [mailbox/AGENTS_MAILBOX.md](mailbox/AGENTS_MAILBOX.md).
+
+## Manage project configurations
+
+Each managed project has a JSON file in [projects/](projects/). It records the GitHub Project, parent repository, nested submodules, external references and optional collaborators and workstreams. The project ID is the file name without `.json`.
+
+```bash
+uv run aao projects list
+uv run aao projects sync ai_engineer --dry-run  # preview the repository tree
+uv run aao projects sync ai_engineer            # write projects/ai_engineer.json
+uv run aao projects validate                    # validate every project config
+uv run aao projects status ai_engineer          # live issue counts by Status
+uv run aao projects setup ai_engineer --dry-run # preview GitHub Project setup
+uv run aao projects setup ai_engineer           # create or complete the GitHub Project
+```
+
+`sync` reads `.gitmodules` recursively from each repository's default branch on GitHub and rebuilds the config's `repo` tree, preserving the other settings. Merge submodule URL changes in the owning repository before syncing; refresh the tree with this command instead of editing it by hand. References under `external/` stay separate from managed repositories.
+
+The optional `collaborators` list names trusted GitHub accounts whose repositories are managed alongside the project owner's. For example, `git-hevangel` is the owner's shadow account and is listed in both current project configs. This setting records which accounts' repositories belong to the project; GitHub Project access is granted separately in **Settings → Manage access**, with Write access needed to edit fields.
+
+`setup` creates or completes the GitHub Project's fields, links managed repositories, creates missing canonical labels and adds their issues. Sync and live GitHub operations use the authenticated GitHub CLI (`gh`); GitHub Project operations require the `project` scope. See [the project configuration spec](spec/github_project.md#project-configs) for the schema and setup rules.
 
 ## Install the CLI agents
 
