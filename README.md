@@ -4,7 +4,13 @@ Let one AI agent direct a whole team of other AI agents: the coding CLIs in your
 
 You give the work to one coordinating agent. It splits the work into GitHub issues, hands each piece to whichever agent suits it, such as Claude Code, Codex, Cursor, Gemini, Grok, ChatGPT or Muse, and tracks progress on a GitHub Project board. The agents can message each other through a shared Dropbox or Box folder.
 
-> **Status:** early. The fleet dashboard works today; the plugin that hands out the work is not written yet. The repo also holds the agent catalog, a Docker environment, the coordination protocols and the design specs.
+Our manifesto:
+
+1. **AI is a fungible commodity, wherever it runs.** Choose the model and machine that best fit the work, regardless of vendor or location.
+2. **The agent is an illusion: compute resources plus LLM calls.** Treat it as a resource to compose, allocate and replace.
+3. **GitHub issues and Projects are the orchestration layer.** Tasks, dependencies, ownership and progress live in a shared, durable work queue.
+4. **The Dropbox mailbox is the messaging layer between AIs.** Agents exchange messages through a shared folder, using the same protocol on Box when preferred.
+5. **The GitHub repository is the source of truth.** Code, specs and decisions are committed and pushed so every agent works from the same durable record.
 
 ## The fleet dashboard
 
@@ -13,8 +19,9 @@ uv sync
 uv run aao serve        # open http://127.0.0.1:8765/
 ```
 
-One page, five tabs, refreshed in the background:
+One page, six tabs, refreshed in the background:
 
+- **Projects:** each managed project's GitHub Project link, parent repository, nested submodules and external references, read from `projects/*.json`.
 - **Machines:** CPU, memory and disk for this computer and every machine you've added to herdr, plus which agents are running on each. Cloud agents run by the AI labs are listed separately with their tasks.
 - **Quotas:** how much of each subscription's 5-hour, weekly and monthly allowance is left, when it resets, and a warning if you're on track to run out before the reset.
 - **Tokens & cost:** daily token use split into fresh input, cache writes, cache reads and output, and what that use would have cost at public API prices, per day, per model and per session.
@@ -73,6 +80,26 @@ Releases go out once the agents have built and reviewed the work. Humans test af
 
 **Mailbox: direct messages between agents.** Agents leave each other messages as small files in a shared Dropbox or Box folder. Files are only ever added, never edited, so two agents can't overwrite each other. Details: [mailbox/AGENTS_MAILBOX.md](mailbox/AGENTS_MAILBOX.md).
 
+## Manage project configurations
+
+Each managed project has a JSON file in [projects/](projects/). It records the GitHub Project, parent repository, nested submodules, external references and optional collaborators and workstreams. The project ID is the file name without `.json`.
+
+```bash
+uv run aao projects list
+uv run aao projects sync ai_engineer --dry-run  # preview the repository tree
+uv run aao projects sync ai_engineer            # write projects/ai_engineer.json
+uv run aao projects validate                    # validate every project config
+uv run aao projects status ai_engineer          # live issue counts by Status
+uv run aao projects setup ai_engineer --dry-run # preview GitHub Project setup
+uv run aao projects setup ai_engineer           # create or complete the GitHub Project
+```
+
+`sync` reads `.gitmodules` recursively from each repository's default branch on GitHub and rebuilds the config's `repo` tree, preserving the other settings. Merge submodule URL changes in the owning repository before syncing; refresh the tree with this command instead of editing it by hand. References under `external/` stay separate from managed repositories.
+
+The optional `collaborators` list names trusted GitHub accounts whose repositories are managed alongside the project owner's. For example, `git-hevangel` is the owner's shadow account and is listed in both current project configs. This setting records which accounts' repositories belong to the project; GitHub Project access is granted separately in **Settings → Manage access**, with Write access needed to edit fields.
+
+`setup` creates or completes the GitHub Project's fields, links managed repositories, creates missing canonical labels and adds their issues. Sync and live GitHub operations use the authenticated GitHub CLI (`gh`); GitHub Project operations require the `project` scope. See [the project configuration spec](spec/github_project.md#project-configs) for the schema and setup rules.
+
 ## Install the CLI agents
 
 [agents.json](agents.json) lists every supported agent and how to install and update it. On Linux, macOS or WSL (requires `jq`):
@@ -103,6 +130,10 @@ To work on a different repository, set `WORKSPACE=../your-repo` in `.env`.
 Some logins live in your operating system's password store rather than in a folder: Claude Code on macOS uses the Keychain, and `gh` on Windows may use Credential Manager. The container can't see those. Put a token in `.env` instead (for example `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token`, or `GH_TOKEN`), or log in once inside the container.
 
 The container doesn't include Claude in Chrome or computer use. They need your own Chrome and desktop.
+
+## Status
+
+Early. The fleet dashboard works today; the plugin that hands out the work is not written yet. The repo also holds the agent catalog, a Docker environment, the coordination protocols and the design specs.
 
 ## Reference projects
 

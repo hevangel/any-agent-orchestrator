@@ -75,6 +75,10 @@ td.wrap { white-space: normal; overflow-wrap: anywhere; min-width: 160px; }
 a { color: var(--s1); }
 .empty { color: var(--ink-2); padding: 12px 0; }
 .err { color: var(--critical); font-size: 12px; overflow-wrap: anywhere; }
+.links { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; margin-bottom: 6px; }
+ul.tree { list-style: none; margin: 4px 0 0; padding-left: 14px; border-left: 1px solid var(--grid); font-size: 12px; }
+ul.tree li { margin: 3px 0; overflow-wrap: anywhere; }
+code { font-size: 12px; }
 details summary { cursor: pointer; color: var(--ink-2); font-size: 12px; margin-top: 8px; }
 </style>
 </head>
@@ -82,7 +86,8 @@ details summary { cursor: pointer; color: var(--ink-2); font-size: 12px; margin-
 <header>
   <div><h1>Agent fleet</h1><div class="meta" id="updated">Loading…</div></div>
   <nav role="tablist">
-    <button data-tab="machines" aria-selected="true">Machines</button>
+    <button data-tab="projects" aria-selected="true">Projects</button>
+    <button data-tab="machines">Machines</button>
     <button data-tab="quotas">Quotas</button>
     <button data-tab="usage">Tokens &amp; cost</button>
     <button data-tab="free">Free tokens</button>
@@ -92,7 +97,8 @@ details summary { cursor: pointer; color: var(--ink-2); font-size: 12px; margin-
   </nav>
 </header>
 <main>
-  <section id="tab-machines"></section>
+  <section id="tab-projects"></section>
+  <section id="tab-machines" hidden></section>
   <section id="tab-quotas" hidden></section>
   <section id="tab-usage" hidden></section>
   <section id="tab-free" hidden></section>
@@ -155,6 +161,39 @@ async function api(name) {
 function fill(section, ...kids) { section.replaceChildren(...kids.flat().filter(k => k != null && k !== false)); }
 function missing(section, what, cmd) {
   section.replaceChildren(h("p", { class: "empty" }, `No ${what} snapshot yet. It is collected in the background; or run `, h("code", {}, cmd), "."));
+}
+
+/* ---------------------------------------------------------------- projects */
+const link = (url, text) => h("a", { href: url, target: "_blank", rel: "noopener" }, text);
+function repoTree(node, depth = 0) {
+  const subs = node.submodules || [], ext = node.external || [];
+  const label = depth ? h("span", {}, h("code", {}, node.path), "  ", node.name ? link(node.url, node.name) : node.url) : null;
+  const kids = [
+    ...subs.map(n => h("li", {}, repoTree(n, depth + 1))),
+    ext.length ? h("li", {}, h("details", {}, h("summary", {}, `${ext.length} external reference${ext.length > 1 ? "s" : ""} (not owned)`),
+      h("ul", { class: "tree" }, ext.map(e => h("li", { class: "meta" }, h("code", {}, e.path), "  ", e.name ? link(e.url, e.name) : e.url))))) : null,
+  ].filter(Boolean);
+  return [label, kids.length ? h("ul", { class: "tree" }, kids) : null];
+}
+function countRepos(node) { return (node.name ? 1 : 0) + (node.submodules || []).reduce((a, n) => a + countRepos(n), 0); }
+function renderProjects(data) {
+  const sec = $("#tab-projects");
+  const list = (data && data.projects) || [];
+  if (!list.length) return fill(sec, h("p", { class: "empty" }, "No projects configured. Add one JSON file per project in projects/."));
+  fill(sec,
+    h("p", { class: "meta" }, "Projects this repo manages (projects/*.json). Each is a GitHub Project in a parent repository; owned repos are submodules, references sit under external/. Refresh the tree with ", h("code", {}, "uv run aao projects sync <id>"), "."),
+    h("div", { class: "grid" }, list.map(p => {
+      const gp = p.github_project || {}, repo = p.repo || {};
+      return h("div", { class: "card" },
+        h("h3", {}, p.title || p.id, h("span", { class: "chip" }, `${countRepos(repo)} repo${countRepos(repo) === 1 ? "" : "s"}`)),
+        h("div", { class: "sub" }, p.description || ""),
+        h("div", { class: "links" },
+          gp.url ? link(gp.url, `GitHub Project #${gp.number}`) : h("span", { class: "err" }, `No GitHub Project yet: aao projects setup ${p.id}`),
+          repo.name ? link(repo.url || `https://github.com/${repo.name}`, repo.name) : null),
+        repoTree(repo),
+        (p.warnings || []).map(w => h("div", { class: "err" }, "! " + w)),
+        p.notes ? h("div", { class: "meta", style: "margin-top:8px" }, p.notes) : null);
+    })));
 }
 
 /* ---------------------------------------------------------------- machines */
@@ -415,7 +454,7 @@ function renderPrices(data) {
 }
 
 /* -------------------------------------------------------------------- boot */
-const RENDER = { machines: renderMachines, quotas: renderQuotas, usage: renderUsage, "free-tokens": renderFree, prices: renderPrices };
+const RENDER = { projects: renderProjects, machines: renderMachines, quotas: renderQuotas, usage: renderUsage, "free-tokens": renderFree, prices: renderPrices };
 async function load() {
   const results = await Promise.all(Object.keys(RENDER).map(api));
   Object.values(RENDER).forEach((fn, i) => fn(results[i]));

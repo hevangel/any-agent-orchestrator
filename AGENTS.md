@@ -30,6 +30,7 @@ This project needs **uv**, **playwright-cli** with **Google Chrome**, and **herd
 ## Layout
 
 - `agents.json` — single source of truth for supported CLI agents (id, binary, tags `core|tier2|byok|free-tokens`, per-OS install/update commands). `install_agents.sh` and `update_agents.sh` read it with `jq`. Add an agent here, not in scripts or the Dockerfile.
+- `projects/` — one JSON config per project this repo manages (`aao-project-v1`): its GitHub Project, parent repo and the tree of owned submodules (references under `external/` listed separately). Rebuild the tree with `aao projects sync <id>`, never by hand; see [spec/github_project.md](spec/github_project.md#project-configs).
 - `.env.example` — template for `.env`.
 - `Dockerfile`, `docker-compose.yml` — **optional** container with every CLI agent, `gh`, `uv`, `playwright-cli` + Chromium. Nothing requires Docker; the native install ([spec/prerequisites.md](spec/prerequisites.md)) is the default.
 - `.env` (gitignored; template `.env.example`) — remote hosts, CLIs per host, every subscription/API account (multi-account per CLI), e2e matrix and web-profile settings. Read through `orchestrator.config`.
@@ -85,6 +86,9 @@ uv run aao code sessions|read <s>|send <s> --prompt ..|new --prompt .. [--repo -
 uv run aao code projects|project <name>|project-send <name> --prompt ..   # Projects (beta)
 uv run aao flow status|projects|new [--title]|read <p> [--type]|download <p> <media> [--to --quality]|upload <p> <file>..|options|delete <p> --yes   # Google Flow (web_flow.py); generation not driven, upscales spend credits
 uv run aao web close [--all]              # browsers stay open between commands (AAO_WEB_KEEP_OPEN=0 to close each time)
+uv run aao projects list|validate|status <id>      # managed projects (projects/*.json)
+uv run aao projects sync <id> [--dry-run]           # rebuild the owned-repo tree from live .gitmodules
+uv run aao projects setup <id> [--dry-run]          # create/complete the GitHub Project: fields, labels, repos, every issue
 uv run aao serve                          # dashboard at http://127.0.0.1:8765/ + background collectors
 uv run aao collect [machines|quotas|usage]   # one collector, summary to stdout (--json for the document)
 uv run aao prices update [--dry-run]      # parse official pricing pages into data/api_prices.json (no LLM)

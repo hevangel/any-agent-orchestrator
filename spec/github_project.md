@@ -10,6 +10,25 @@ The **main repo** hosts the GitHub Project and pins every work repository as a g
 - A change inside a submodule is merged in that repository first; the main repo then updates the pin in its own reviewed PR. Never bump pins as routine cleanup.
 - Link the project README to specs on the default branch, never a feature branch.
 
+Owned repositories may pin their own submodules, to any depth; each one is part of the project. **Repositories the project does not own** (references, upstream code) are pinned under an `external/` folder at whatever level uses them, are never worked on, and are never linked to the Project.
+
+## Project configs
+
+Every project this orchestrator manages has one file `projects/<id>.json` (schema `aao-project-v1`):
+
+| Key | Meaning |
+| --- | --- |
+| `id`, `title`, `description` | `id` equals the file name |
+| `github_project` | `owner`; `number` and `url` once the Project exists |
+| `collaborators` | Optional GitHub usernames whose repositories outside `external/` are managed alongside the owner's repositories. This records the trusted project accounts; it does not grant GitHub access. |
+| `workstreams` | Optional Workstream options; `setup` fills Workstream from a matching `[Prefix]` in the issue title |
+| `repo` | Parent repo `name` (`owner/name`) and `url`, its owned `submodules` (each `path`, `name`, `url`, nested `submodules`) and `external` references |
+| `notes` | Free text, e.g. how a pre-existing Project departs from this spec |
+
+- `aao projects sync <id>` rebuilds `repo` from the live `.gitmodules` of each repository's default branch. Do not edit the tree by hand. A submodule outside `external/` whose repository belongs to neither the owner nor a declared collaborator breaks the rule above; sync and the dashboard flag it, and `setup` leaves that repository alone.
+- `aao projects setup <id>` creates the Project when `number` is empty and is idempotent afterwards: Status options from this spec (replacing GitHub's default Todo/In Progress/Done only), Agent options from `agents.json` plus the web targets, Workstream, Path, Start/End date, a weekly Iteration field with four iterations, links every owned repository, creates any missing canonical label (existing labels are never changed), and adds every issue of every owned repository. Items with no Status get `Planned` when open and `AI-reviewed` when closed as completed. It never sets Agent, Iteration or Path. Views cannot be created through the API; add them by hand from [Views](#views).
+- New projects are created private; make one public in its Settings if the repository is public.
+
 ## Issues and dependencies
 
 - One issue per unit of work an agent can finish and verify. Large scopes become a **parent issue with native sub-issues**; the parent tracks integration, children carry the work.

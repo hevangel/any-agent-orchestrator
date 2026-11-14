@@ -1,0 +1,44 @@
+{
+  "schema": "aao-project-v1",
+  "id": "silicon_wars_anime_girls",
+  "title": "silicon_wars_anime_girls",
+  "description": "What if AI companies are anime girls: character art, art styles, animation pipelines and interactive stories.",
+  "github_project": {
+    "owner": "hevangel",
+    "number": 2,
+    "url": "https://github.com/users/hevangel/projects/2"
+  },
+  "collaborators": ["git-hevangel"],
+  "workstreams": [
+    "Art Style",
+    "Animation",
+    "Interactive",
+    "Story"
+  ],
+  "repo": {
+    "name": "hevangel/silicon_wars_anime_girls",
+    "url": "https://github.com/hevangel/silicon_wars_anime_girls",
+    "external": [
+      {
+        "path": "external/manga-studio",
+        "name": "ahmet360/manga-studio",
+        "url": "https://github.com/ahmet360/manga-studio"
+      },
+      {
+        "path": "external/comic-pipeline",
+        "name": "adachi0130/comic-pipeline",
+        "url": "https://github.com/adachi0130/comic-pipeline"
+      },
+      {
+        "path": "external/open-pose-costume",
+        "name": "hongye007/open-pose-costume",
+        "url": "https://github.com/hongye007/open-pose-costume"
+      },
+      {
+        "path": "external/open-pose-costume-skill",
+        "name": "hongye007/open-pose-costume-skill",
+        "url": "https://github.com/hongye007/open-pose-costume-skill"
+      }
+    ]
+  }
+}
