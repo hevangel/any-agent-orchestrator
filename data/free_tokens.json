@@ -1,6 +1,6 @@
 {
   "schema": "free-tokens-v1",
-  "updated_at": "2026-11-15T22:00:00Z",
+  "updated_at": "2026-11-16T16:00:00Z",
   "updated_by": "ChatGPT daily AI token & media deals",
   "notes": "Free token, credit and free-tier offers usable by the agents in agents.json. Maintained daily by an agent following prompts/daily_data_update.md; every entry needs a source URL and a verification date. Validate with: uv run aao free-tokens validate",
   "sources": [
@@ -22,8 +22,8 @@
       "url": "https://iteracompute.com/free/",
       "expires": "2026-11-24",
       "status": "active",
-      "verified_at": "2026-11-15",
-      "notes": "No credit card or recharge; email verification; OpenAI-compatible Auto model, routes among models including Qwen3.8 and DeepSeek V4.1; shared server capacity and queues; one in-flight request; 128K context; 8,192 output cap. No paid overage; promotional free tier not guaranteed after expiry."
+      "verified_at": "2026-11-16",
+      "notes": "No credit card or recharge; verify email; model Auto on OpenAI-compatible API. 30M tokens/month; shared idle capacity, queues and rate limits; 1 concurrent request, 128K context, 8192 max output. Ends Nov 24 at 00:00 Pacific. Model identity may change."
     },
     {
       "id": "vercel-ai-gateway-free",
@@ -43,8 +43,8 @@
       "url": "https://vercel.com/docs/ai-gateway/pricing",
       "expires": null,
       "status": "active",
-      "verified_at": "2026-11-15",
-      "notes": "No credit purchase required for eligible free team; first request starts credit cycle; purchases terminate recurring grant; model-specific pricing and usage limits."
+      "verified_at": "2026-11-16",
+      "notes": "No credit purchase required for eligible free team; first request starts credit cycle; purchasing credits terminates recurring grant. Paid models consume the $5 balance. Auto top-up is disabled by default; leave disabled to avoid unexpected billing. No announced end date."
     },
     {
       "id": "openrouter-ling-3-2-flash",
@@ -64,7 +64,7 @@
       "url": "https://openrouter.ai/inclusionai/ling-3.2-flash:free",
       "expires": null,
       "status": "active",
-      "verified_at": "2026-11-15",
+      "verified_at": "2026-11-16",
       "notes": "Text/image input, tool calling, ~1M context; free :free variant needs no credit purchase; standard OpenRouter account-level 50 requests/day and 20/min without top-up; provider data terms require review."
     },
     {
@@ -85,7 +85,7 @@
       "url": "https://openrouter.ai/thinkingmachines/inkling-2-small:free",
       "expires": null,
       "status": "active",
-      "verified_at": "2026-11-15",
+      "verified_at": "2026-11-16",
       "notes": "Agentic coding, multimodal input, 1M context; free :free endpoint, rate-limited; free requests may be logged and used for model improvement; avoid confidential code."
     },
     {
@@ -106,7 +106,7 @@
       "url": "https://openrouter.ai/baidu/ernie-5.5-flash-preview:free",
       "expires": null,
       "status": "active",
-      "verified_at": "2026-11-15",
+      "verified_at": "2026-11-16",
       "notes": "Tool calling and structured outputs, ~1M context; OpenRouter :free rate limits; provider-specific data retention should be checked."
     },
     {
@@ -127,8 +127,8 @@
       "url": "https://openrouter.ai/nvidia/nemotron-3-ultra-550b-a55b:free",
       "expires": null,
       "status": "active",
-      "verified_at": "2026-11-15",
-      "notes": "Large MoE reasoning and coding agent model, 1M context. OpenRouter :free request caps and provider-level throttling."
+      "verified_at": "2026-11-16",
+      "notes": "55B active / 550B total MoE, 1M context, coding/reasoning/orchestration. Free endpoint logs inputs and outputs for security and NVIDIA model improvement; do not upload confidential information or personal data. Standard OpenRouter free request caps."
     },
     {
       "id": "openrouter-north-mini-code",
@@ -145,11 +145,11 @@
       "access": [
         "api"
       ],
-      "url": "https://openrouter.ai/collections/free-models",
+      "url": "https://openrouter.ai/cohere/north-mini-code:free",
       "expires": null,
       "status": "active",
-      "verified_at": "2026-11-15",
-      "notes": "Agentic coding model with 256K context and up to 64K output. See current catalog for exact model route; OpenRouter :free request caps."
+      "verified_at": "2026-11-16",
+      "notes": "Exact model ID cohere/north-mini-code:free; agentic coding model, 256K context, 64K output; tool calling, no enforced JSON response_format. OpenRouter free variant cap 50 requests/day, 20/min, higher quota requires paid top-up."
     },
     {
       "id": "openrouter-liquid-lfm3",
@@ -169,7 +169,7 @@
       "url": "https://openrouter.ai/liquid/lfm-3-1.7b:free",
       "expires": null,
       "status": "active",
-      "verified_at": "2026-11-15",
+      "verified_at": "2026-11-16",
       "notes": "Small model for routing and structured tool calls; input/output may be retained and used for model training; rate-limited."
     },
     {
@@ -185,8 +185,8 @@
       "url": "https://openrouter.ai/recraft/recraft-v4.1-flash-v2:free",
       "expires": "2026-11-28",
       "status": "active",
-      "verified_at": "2026-11-15",
-      "notes": "Text-to-image only, no image-reference edits; up to 6 images/request, 1:1 4:3 3:4 16:9 9:16, OpenRouter free request caps; verify current availability before batch campaigns."
+      "verified_at": "2026-11-16",
+      "notes": "Text-to-image only, no image inputs, style references or editing; palette and background controls. Free variant subject to OpenRouter 50 requests/day and 20/min unless eligible for paid quota upgrade; no fixed image allowance; ends November 28."
     },
     {
       "id": "vercel-parallel-decisions-fast",
@@ -205,7 +205,7 @@
       "url": "https://vercel.com/changelog/parallel-decisions-now-available-on-ai-gateway-for-free",
       "expires": "2026-11-23",
       "status": "active",
-      "verified_at": "2026-11-15",
+      "verified_at": "2026-11-16",
       "notes": "Web-grounded decision API, not ordinary chat completion; Vercel AI Gateway account, no separate Parallel account; exact promotional request cap/card requirements not specified."
     },
     {
@@ -226,8 +226,99 @@
       "url": "https://openrouter.ai/collections/free-models",
       "expires": null,
       "status": "active",
-      "verified_at": "2026-11-15",
-      "notes": "Use model openrouter/free to select an eligible free model; underlying model may change; :free variants require no credit purchases, standard cap 50 requests/day and 20/min; do not assume routing identity."
+      "verified_at": "2026-11-16",
+      "notes": "Model openrouter/free routes to an eligible zero-priced model, which may vary per call. OpenRouter :free variants require no credit purchase; default 50 requests/day and 20/min, 1,000/day after $10 purchased. No fixed token allowance."
+    },
+    {
+      "id": "alibaba-modelstudio-wan3-video",
+      "provider": "Alibaba Cloud Model Studio",
+      "offer": "Wan 3.0 video generation new-user free quota",
+      "kind": "one-time",
+      "amount": "30 seconds combined input/output video duration",
+      "agent_ids": [],
+      "access": [
+        "api"
+      ],
+      "url": "https://www.alibabacloud.com/help/en/model-studio/model-pricing",
+      "expires": null,
+      "status": "active",
+      "verified_at": "2026-11-16",
+      "notes": "New users activating Model Studio in Singapore only; free quota valid 90 days from activation/model release/approval (whichever later). Wan3.0-video and Wan3.0-video-prime; 480p/720p/1080p. Account completion required; payment card requirement not independently established. Default billing falls through from free quota to paid usage; ENABLE Free Quota Only mode to prevent charges. Useful for short image-to-video and animation experiments."
+    },
+    {
+      "id": "kinogenie-trial-video-image",
+      "provider": "KinoGenie",
+      "offer": "Free trial credits for MiniMax H3 video and Qwen-Image",
+      "kind": "trial",
+      "amount": "Free credits to try it (amount not published)",
+      "agent_ids": [],
+      "access": [
+        "api",
+        "web"
+      ],
+      "url": "https://kinogenie.com/",
+      "expires": null,
+      "status": "unverified",
+      "verified_at": "2026-11-16",
+      "notes": "No credit card advertised. REST API and MCP available. MiniMax H3 video 4-15 seconds, 5 credits/second at 480p or 6 at 768p; Qwen-Image 2 credits at 1K. Exact trial credits and expiry unverified. No paid purchase needed to start, but capacity and signup eligibility untested."
+    },
+    {
+      "id": "melter-signup-video-credits",
+      "provider": "Melter",
+      "offer": "Sign-up media generation credits",
+      "kind": "one-time",
+      "amount": "400 free credits once at sign-up",
+      "agent_ids": [],
+      "access": [
+        "web"
+      ],
+      "url": "https://www.melter.ai/image-to-video",
+      "expires": null,
+      "status": "active",
+      "verified_at": "2026-11-16",
+      "notes": "New accounts; credits never expire. Consumer studio for video/image (Kling, Veo, Seedance, Wan etc.); model-specific credit pricing shown before generation. API usability of these credits and payment-card requirement unverified, so classified web-only; not a confirmed free API offer."
+    },
+    {
+      "id": "openai-chatgpt-paid-api-benefit",
+      "provider": "OpenAI",
+      "offer": "ChatGPT Pro/Business paid-subscription API credits",
+      "kind": "monthly",
+      "amount": "Pro $100/$200/$500 monthly by plan; Business $20 per Standard seat or $100 per Premium seat (up to $500/workspace/month)",
+      "agent_ids": [
+        "codex",
+        "opencode",
+        "pi",
+        "hermes"
+      ],
+      "access": [
+        "api"
+      ],
+      "url": "https://developers.openai.com/api/docs/guides/chatgpt-api-credits",
+      "expires": null,
+      "status": "active",
+      "verified_at": "2026-11-16",
+      "notes": "PAID-SUBSCRIPTION REQUIRED, not a no-purchase giveaway; Plus and trials excluded. Eligible paid plan active >=7 days, owner of linked API organization and matching email. No API payment method required to use active credits; grants expire at billing cycle end, no rollover; first grant prorated. API rate limits apply. Valuable for code/image experiments."
+    },
+    {
+      "id": "vercel-reflection-beam-free",
+      "provider": "Vercel / Reflection AI",
+      "offer": "Beam free launch API (safe free-only slug)",
+      "kind": "promo",
+      "amount": "$0 input/output during launch period",
+      "agent_ids": [
+        "codex",
+        "opencode",
+        "pi",
+        "hermes"
+      ],
+      "access": [
+        "api"
+      ],
+      "url": "https://vercel.com/changelog/reflection-ai-beam-now-available-on-ai-gateway-for-free",
+      "expires": null,
+      "status": "active",
+      "verified_at": "2026-11-16",
+      "notes": "Use model reflection/beam-free to stop serving when promotion ends; standard reflection/beam will automatically transition to paid pricing after promo, creating billing risk. Free only when served by Reflection AI; exact expiration, account-specific caps and card requirements not announced. 1M context, tool calling, coding/reasoning."
     }
   ]
 }
