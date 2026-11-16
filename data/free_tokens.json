@@ -1,7 +1,233 @@
 {
- "schema": "free-tokens-v1",
- "updated_at": null,
- "updated_by": null,
- "notes": "Free token, credit and free-tier offers usable by the agents in agents.json. Maintained daily by an agent following prompts/daily_data_update.md; every entry needs a source URL and a verification date. Validate with: uv run aao free-tokens validate",
- "sources": []
+  "schema": "free-tokens-v1",
+  "updated_at": "2026-11-15T22:00:00Z",
+  "updated_by": "ChatGPT daily AI token & media deals",
+  "notes": "Free token, credit and free-tier offers usable by the agents in agents.json. Maintained daily by an agent following prompts/daily_data_update.md; every entry needs a source URL and a verification date. Validate with: uv run aao free-tokens validate",
+  "sources": [
+    {
+      "id": "iteracompute-auto-free",
+      "provider": "IteraCompute",
+      "offer": "Auto free API routing",
+      "kind": "monthly",
+      "amount": "30M free tokens per month",
+      "agent_ids": [
+        "opencode",
+        "hermes",
+        "pi",
+        "kilo"
+      ],
+      "access": [
+        "api"
+      ],
+      "url": "https://iteracompute.com/free/",
+      "expires": "2026-11-24",
+      "status": "active",
+      "verified_at": "2026-11-15",
+      "notes": "No credit card or recharge; email verification; OpenAI-compatible Auto model, routes among models including Qwen3.8 and DeepSeek V4.1; shared server capacity and queues; one in-flight request; 128K context; 8,192 output cap. No paid overage; promotional free tier not guaranteed after expiry."
+    },
+    {
+      "id": "vercel-ai-gateway-free",
+      "provider": "Vercel",
+      "offer": "AI Gateway recurring free credits",
+      "kind": "monthly",
+      "amount": "$5/month included",
+      "agent_ids": [
+        "opencode",
+        "pi",
+        "hermes"
+      ],
+      "access": [
+        "api",
+        "web"
+      ],
+      "url": "https://vercel.com/docs/ai-gateway/pricing",
+      "expires": null,
+      "status": "active",
+      "verified_at": "2026-11-15",
+      "notes": "No credit purchase required for eligible free team; first request starts credit cycle; purchases terminate recurring grant; model-specific pricing and usage limits."
+    },
+    {
+      "id": "openrouter-ling-3-2-flash",
+      "provider": "OpenRouter / inclusionAI",
+      "offer": "Ling 3.2 Flash free API",
+      "kind": "free-tier",
+      "amount": "$0/M input; $0/M output",
+      "agent_ids": [
+        "opencode",
+        "pi",
+        "hermes",
+        "kilo"
+      ],
+      "access": [
+        "api"
+      ],
+      "url": "https://openrouter.ai/inclusionai/ling-3.2-flash:free",
+      "expires": null,
+      "status": "active",
+      "verified_at": "2026-11-15",
+      "notes": "Text/image input, tool calling, ~1M context; free :free variant needs no credit purchase; standard OpenRouter account-level 50 requests/day and 20/min without top-up; provider data terms require review."
+    },
+    {
+      "id": "openrouter-inkling-2-small",
+      "provider": "OpenRouter / Thinking Machines",
+      "offer": "Inkling 2 Small free API",
+      "kind": "free-tier",
+      "amount": "$0/M input; $0/M output",
+      "agent_ids": [
+        "opencode",
+        "pi",
+        "hermes",
+        "kilo"
+      ],
+      "access": [
+        "api"
+      ],
+      "url": "https://openrouter.ai/thinkingmachines/inkling-2-small:free",
+      "expires": null,
+      "status": "active",
+      "verified_at": "2026-11-15",
+      "notes": "Agentic coding, multimodal input, 1M context; free :free endpoint, rate-limited; free requests may be logged and used for model improvement; avoid confidential code."
+    },
+    {
+      "id": "openrouter-ernie-5-5-flash",
+      "provider": "OpenRouter / Baidu",
+      "offer": "ERNIE 5.5 Flash Preview free API",
+      "kind": "free-tier",
+      "amount": "$0/M input; $0/M output",
+      "agent_ids": [
+        "opencode",
+        "pi",
+        "hermes",
+        "kilo"
+      ],
+      "access": [
+        "api"
+      ],
+      "url": "https://openrouter.ai/baidu/ernie-5.5-flash-preview:free",
+      "expires": null,
+      "status": "active",
+      "verified_at": "2026-11-15",
+      "notes": "Tool calling and structured outputs, ~1M context; OpenRouter :free rate limits; provider-specific data retention should be checked."
+    },
+    {
+      "id": "openrouter-nemotron-3-ultra",
+      "provider": "OpenRouter / NVIDIA",
+      "offer": "Nemotron 3 Ultra free API",
+      "kind": "free-tier",
+      "amount": "$0/M input; $0/M output",
+      "agent_ids": [
+        "opencode",
+        "pi",
+        "hermes",
+        "kilo"
+      ],
+      "access": [
+        "api"
+      ],
+      "url": "https://openrouter.ai/nvidia/nemotron-3-ultra-550b-a55b:free",
+      "expires": null,
+      "status": "active",
+      "verified_at": "2026-11-15",
+      "notes": "Large MoE reasoning and coding agent model, 1M context. OpenRouter :free request caps and provider-level throttling."
+    },
+    {
+      "id": "openrouter-north-mini-code",
+      "provider": "OpenRouter / Cohere",
+      "offer": "North Mini Code free API",
+      "kind": "free-tier",
+      "amount": "$0/M input; $0/M output",
+      "agent_ids": [
+        "opencode",
+        "pi",
+        "hermes",
+        "kilo"
+      ],
+      "access": [
+        "api"
+      ],
+      "url": "https://openrouter.ai/collections/free-models",
+      "expires": null,
+      "status": "active",
+      "verified_at": "2026-11-15",
+      "notes": "Agentic coding model with 256K context and up to 64K output. See current catalog for exact model route; OpenRouter :free request caps."
+    },
+    {
+      "id": "openrouter-liquid-lfm3",
+      "provider": "OpenRouter / Liquid AI",
+      "offer": "LFM3-1.7B free API",
+      "kind": "free-tier",
+      "amount": "$0/M input; $0/M output",
+      "agent_ids": [
+        "opencode",
+        "pi",
+        "hermes",
+        "kilo"
+      ],
+      "access": [
+        "api"
+      ],
+      "url": "https://openrouter.ai/liquid/lfm-3-1.7b:free",
+      "expires": null,
+      "status": "active",
+      "verified_at": "2026-11-15",
+      "notes": "Small model for routing and structured tool calls; input/output may be retained and used for model training; rate-limited."
+    },
+    {
+      "id": "openrouter-recraft-v4-1-flash-v2",
+      "provider": "OpenRouter / Recraft",
+      "offer": "Recraft V4.1 Flash V2 free image generation API",
+      "kind": "promo",
+      "amount": "Free image generation ($0/image)",
+      "agent_ids": [],
+      "access": [
+        "api"
+      ],
+      "url": "https://openrouter.ai/recraft/recraft-v4.1-flash-v2:free",
+      "expires": "2026-11-28",
+      "status": "active",
+      "verified_at": "2026-11-15",
+      "notes": "Text-to-image only, no image-reference edits; up to 6 images/request, 1:1 4:3 3:4 16:9 9:16, OpenRouter free request caps; verify current availability before batch campaigns."
+    },
+    {
+      "id": "vercel-parallel-decisions-fast",
+      "provider": "Vercel / Parallel",
+      "offer": "Parallel Decisions Fast free API",
+      "kind": "promo",
+      "amount": "Free through November 23, 2026",
+      "agent_ids": [
+        "opencode",
+        "pi",
+        "hermes"
+      ],
+      "access": [
+        "api"
+      ],
+      "url": "https://vercel.com/changelog/parallel-decisions-now-available-on-ai-gateway-for-free",
+      "expires": "2026-11-23",
+      "status": "active",
+      "verified_at": "2026-11-15",
+      "notes": "Web-grounded decision API, not ordinary chat completion; Vercel AI Gateway account, no separate Parallel account; exact promotional request cap/card requirements not specified."
+    },
+    {
+      "id": "openrouter-free-router",
+      "provider": "OpenRouter",
+      "offer": "Automatic free-model router",
+      "kind": "free-tier",
+      "amount": "$0/M input; $0/M output",
+      "agent_ids": [
+        "opencode",
+        "pi",
+        "hermes",
+        "kilo"
+      ],
+      "access": [
+        "api"
+      ],
+      "url": "https://openrouter.ai/collections/free-models",
+      "expires": null,
+      "status": "active",
+      "verified_at": "2026-11-15",
+      "notes": "Use model openrouter/free to select an eligible free model; underlying model may change; :free variants require no credit purchases, standard cap 50 requests/day and 20/min; do not assume routing identity."
+    }
+  ]
 }
