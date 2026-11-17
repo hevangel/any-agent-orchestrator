@@ -1,6 +1,6 @@
 {
   "schema": "free-tokens-v1",
-  "updated_at": "2026-11-16T16:00:00Z",
+  "updated_at": "2026-11-17T15:42:31.934Z",
   "updated_by": "ChatGPT daily AI token & media deals",
   "notes": "Free token, credit and free-tier offers usable by the agents in agents.json. Maintained daily by an agent following prompts/daily_data_update.md; every entry needs a source URL and a verification date. Validate with: uv run aao free-tokens validate",
   "sources": [
@@ -19,11 +19,11 @@
       "access": [
         "api"
       ],
-      "url": "https://iteracompute.com/free/",
+      "url": "https://platform.iteracompute.com/free/",
       "expires": "2026-11-24",
       "status": "active",
-      "verified_at": "2026-11-16",
-      "notes": "No credit card or recharge; verify email; model Auto on OpenAI-compatible API. 30M tokens/month; shared idle capacity, queues and rate limits; 1 concurrent request, 128K context, 8192 max output. Ends Nov 24 at 00:00 Pacific. Model identity may change."
+      "verified_at": "2026-11-17",
+      "notes": "No credit card or recharge; verify email. Auto model via OpenAI-compatible API; 30M combined input/output tokens per UTC calendar month, 128K context, 8,192 max output, one queued/running request per account, shared idle capacity and no SLA. No automatic paid overage; monthly limit returns 429. Free promotion ends Nov 24 00:00 Pacific; $10 cumulative net recharge unlocks 100M/month, $50 unlocks 300M/month (purchase-gated). Model may change."
     },
     {
       "id": "vercel-ai-gateway-free",
@@ -43,7 +43,7 @@
       "url": "https://vercel.com/docs/ai-gateway/pricing",
       "expires": null,
       "status": "active",
-      "verified_at": "2026-11-16",
+      "verified_at": "2026-11-17",
       "notes": "No credit purchase required for eligible free team; first request starts credit cycle; purchasing credits terminates recurring grant. Paid models consume the $5 balance. Auto top-up is disabled by default; leave disabled to avoid unexpected billing. No announced end date."
     },
     {
@@ -64,7 +64,7 @@
       "url": "https://openrouter.ai/inclusionai/ling-3.2-flash:free",
       "expires": null,
       "status": "active",
-      "verified_at": "2026-11-16",
+      "verified_at": "2026-11-17",
       "notes": "Text/image input, tool calling, ~1M context; free :free variant needs no credit purchase; standard OpenRouter account-level 50 requests/day and 20/min without top-up; provider data terms require review."
     },
     {
@@ -85,7 +85,7 @@
       "url": "https://openrouter.ai/thinkingmachines/inkling-2-small:free",
       "expires": null,
       "status": "active",
-      "verified_at": "2026-11-16",
+      "verified_at": "2026-11-17",
       "notes": "Agentic coding, multimodal input, 1M context; free :free endpoint, rate-limited; free requests may be logged and used for model improvement; avoid confidential code."
     },
     {
@@ -106,7 +106,7 @@
       "url": "https://openrouter.ai/baidu/ernie-5.5-flash-preview:free",
       "expires": null,
       "status": "active",
-      "verified_at": "2026-11-16",
+      "verified_at": "2026-11-17",
       "notes": "Tool calling and structured outputs, ~1M context; OpenRouter :free rate limits; provider-specific data retention should be checked."
     },
     {
@@ -127,7 +127,7 @@
       "url": "https://openrouter.ai/nvidia/nemotron-3-ultra-550b-a55b:free",
       "expires": null,
       "status": "active",
-      "verified_at": "2026-11-16",
+      "verified_at": "2026-11-17",
       "notes": "55B active / 550B total MoE, 1M context, coding/reasoning/orchestration. Free endpoint logs inputs and outputs for security and NVIDIA model improvement; do not upload confidential information or personal data. Standard OpenRouter free request caps."
     },
     {
@@ -148,7 +148,7 @@
       "url": "https://openrouter.ai/cohere/north-mini-code:free",
       "expires": null,
       "status": "active",
-      "verified_at": "2026-11-16",
+      "verified_at": "2026-11-17",
       "notes": "Exact model ID cohere/north-mini-code:free; agentic coding model, 256K context, 64K output; tool calling, no enforced JSON response_format. OpenRouter free variant cap 50 requests/day, 20/min, higher quota requires paid top-up."
     },
     {
@@ -185,7 +185,7 @@
       "url": "https://openrouter.ai/recraft/recraft-v4.1-flash-v2:free",
       "expires": "2026-11-28",
       "status": "active",
-      "verified_at": "2026-11-16",
+      "verified_at": "2026-11-17",
       "notes": "Text-to-image only, no image inputs, style references or editing; palette and background controls. Free variant subject to OpenRouter 50 requests/day and 20/min unless eligible for paid quota upgrade; no fixed image allowance; ends November 28."
     },
     {
@@ -205,7 +205,7 @@
       "url": "https://vercel.com/changelog/parallel-decisions-now-available-on-ai-gateway-for-free",
       "expires": "2026-11-23",
       "status": "active",
-      "verified_at": "2026-11-16",
+      "verified_at": "2026-11-17",
       "notes": "Web-grounded decision API, not ordinary chat completion; Vercel AI Gateway account, no separate Parallel account; exact promotional request cap/card requirements not specified."
     },
     {
@@ -228,22 +228,6 @@
       "status": "active",
       "verified_at": "2026-11-16",
       "notes": "Model openrouter/free routes to an eligible zero-priced model, which may vary per call. OpenRouter :free variants require no credit purchase; default 50 requests/day and 20/min, 1,000/day after $10 purchased. No fixed token allowance."
-    },
-    {
-      "id": "alibaba-modelstudio-wan3-video",
-      "provider": "Alibaba Cloud Model Studio",
-      "offer": "Wan 3.0 video generation new-user free quota",
-      "kind": "one-time",
-      "amount": "30 seconds combined input/output video duration",
-      "agent_ids": [],
-      "access": [
-        "api"
-      ],
-      "url": "https://www.alibabacloud.com/help/en/model-studio/model-pricing",
-      "expires": null,
-      "status": "active",
-      "verified_at": "2026-11-16",
-      "notes": "New users activating Model Studio in Singapore only; free quota valid 90 days from activation/model release/approval (whichever later). Wan3.0-video and Wan3.0-video-prime; 480p/720p/1080p. Account completion required; payment card requirement not independently established. Default billing falls through from free quota to paid usage; ENABLE Free Quota Only mode to prevent charges. Useful for short image-to-video and animation experiments."
     },
     {
       "id": "kinogenie-trial-video-image",
@@ -317,8 +301,29 @@
       "url": "https://vercel.com/changelog/reflection-ai-beam-now-available-on-ai-gateway-for-free",
       "expires": null,
       "status": "active",
-      "verified_at": "2026-11-16",
+      "verified_at": "2026-11-17",
       "notes": "Use model reflection/beam-free to stop serving when promotion ends; standard reflection/beam will automatically transition to paid pricing after promo, creating billing risk. Free only when served by Reflection AI; exact expiration, account-specific caps and card requirements not announced. 1M context, tool calling, coding/reasoning."
+    },
+    {
+      "id": "hiapi-signup-200-credits",
+      "provider": "HiAPI",
+      "offer": "New account image/video/text API signup credits",
+      "kind": "one-time",
+      "amount": "200 free credits ($0.10 at 2,000 credits = $1)",
+      "agent_ids": [
+        "opencode",
+        "pi",
+        "hermes"
+      ],
+      "access": [
+        "api",
+        "web"
+      ],
+      "url": "https://hiapi.ai/en/promotions/black-friday-2026",
+      "expires": null,
+      "status": "active",
+      "verified_at": "2026-11-17",
+      "notes": "New-account signup grants 200 credits per official provider pages. API includes image/video/text models, but $0.10 is too little for most video generation and some image models; no purchase advertised for trial, payment-card eligibility and credit expiry unverified. Separate Nov 24-30 promotion (not active yet): 10M DeepSeek V4.1 Flash tokens/day free for seven days; $50+ recharge unlocks 5-10% bonus, $50+ image/video/audio spend unlocks 5-20% cashback. Do not treat future or paid bonuses as free current tokens."
     }
   ]
 }
