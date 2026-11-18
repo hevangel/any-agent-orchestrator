@@ -1,6 +1,6 @@
 {
   "schema": "free-tokens-v1",
-  "updated_at": "2026-11-17T15:42:31.934Z",
+  "updated_at": "2026-11-18T15:13:00Z",
   "updated_by": "ChatGPT daily AI token & media deals",
   "notes": "Free token, credit and free-tier offers usable by the agents in agents.json. Maintained daily by an agent following prompts/daily_data_update.md; every entry needs a source URL and a verification date. Validate with: uv run aao free-tokens validate",
   "sources": [
@@ -22,7 +22,7 @@
       "url": "https://platform.iteracompute.com/free/",
       "expires": "2026-11-24",
       "status": "active",
-      "verified_at": "2026-11-17",
+      "verified_at": "2026-11-18",
       "notes": "No credit card or recharge; verify email. Auto model via OpenAI-compatible API; 30M combined input/output tokens per UTC calendar month, 128K context, 8,192 max output, one queued/running request per account, shared idle capacity and no SLA. No automatic paid overage; monthly limit returns 429. Free promotion ends Nov 24 00:00 Pacific; $10 cumulative net recharge unlocks 100M/month, $50 unlocks 300M/month (purchase-gated). Model may change."
     },
     {
@@ -43,7 +43,7 @@
       "url": "https://vercel.com/docs/ai-gateway/pricing",
       "expires": null,
       "status": "active",
-      "verified_at": "2026-11-17",
+      "verified_at": "2026-11-18",
       "notes": "No credit purchase required for eligible free team; first request starts credit cycle; purchasing credits terminates recurring grant. Paid models consume the $5 balance. Auto top-up is disabled by default; leave disabled to avoid unexpected billing. No announced end date."
     },
     {
@@ -205,7 +205,7 @@
       "url": "https://vercel.com/changelog/parallel-decisions-now-available-on-ai-gateway-for-free",
       "expires": "2026-11-23",
       "status": "active",
-      "verified_at": "2026-11-17",
+      "verified_at": "2026-11-18",
       "notes": "Web-grounded decision API, not ordinary chat completion; Vercel AI Gateway account, no separate Parallel account; exact promotional request cap/card requirements not specified."
     },
     {
@@ -309,7 +309,7 @@
       "provider": "HiAPI",
       "offer": "New account image/video/text API signup credits",
       "kind": "one-time",
-      "amount": "200 free credits ($0.10 at 2,000 credits = $1)",
+      "amount": "200 free credits at sign-up",
       "agent_ids": [
         "opencode",
         "pi",
@@ -319,11 +319,28 @@
         "api",
         "web"
       ],
-      "url": "https://hiapi.ai/en/promotions/black-friday-2026",
-      "expires": null,
+      "url": "https://hiapi.ai/en/promotions/signup-bonus-200",
+      "expires": "2035-01-01",
       "status": "active",
-      "verified_at": "2026-11-17",
-      "notes": "New-account signup grants 200 credits per official provider pages. API includes image/video/text models, but $0.10 is too little for most video generation and some image models; no purchase advertised for trial, payment-card eligibility and credit expiry unverified. Separate Nov 24-30 promotion (not active yet): 10M DeepSeek V4.1 Flash tokens/day free for seven days; $50+ recharge unlocks 5-10% bonus, $50+ image/video/audio spend unlocks 5-20% cashback. Do not treat future or paid bonuses as free current tokens."
+      "verified_at": "2026-11-18",
+      "notes": "New accounts get 200 credits for API and Playground, worth $0.10 at provider's 2,000 credits/$1 conversion. No purchase advertised for signup; payment-card and actual eligibility untested. Upcoming Nov 24-30 DeepSeek V4.1 Flash 10M tokens/day requires at least one successful account top-up (any amount) according to HiAPI's official Nov 10 checklist; NOT a no-purchase grant. Top-up bonus 5-10% and media spend-back 5-20% are purchase-gated. Trial credits alone may be insufficient for video generation."
+    },
+    {
+      "id": "hiapi-seedance-2-5-flash-20off",
+      "provider": "HiAPI / ByteDance",
+      "offer": "Seedance 2.5 Flash launch discount (text/image/reference-to-video)",
+      "kind": "promo",
+      "amount": "20% off all Seedance 2.5 Flash API and Playground usage",
+      "agent_ids": [],
+      "access": [
+        "api",
+        "web"
+      ],
+      "url": "https://hiapi.ai/en/promotions/seedance-2-5-flash-launch-20261118-8-fold",
+      "expires": "2026-11-24",
+      "status": "active",
+      "verified_at": "2026-11-18",
+      "notes": "PAID inference discount, not free tokens. Automatically applies to all users, no promo code, cannot stack with other model promotions. Supports 480p/720p, 4-30 seconds, synchronized audio; text-to-video, image-to-video, reference-to-video with up to 10 images and 5 audio clips. Official exact event ends November 25 at 07:00 Beijing (November 24 at 15:00 Pacific). Account and funded balance likely required for paid usage; card requirement unverified."
     }
   ]
 }
