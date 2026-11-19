@@ -28,3 +28,6 @@
 [submodule "external/tokenmeter"]
 	path = external/tokenmeter
 	url = https://github.com/serkankorkut/tokenmeter.git
+[submodule "external/grok-web-sdk"]
+	path = external/grok-web-sdk
+	url = https://github.com/ashwaniarya/grok-web-sdk.git

@@ -187,6 +187,23 @@ These are the agent's per-project defaults in the panel's **Settings**, applied 
 
 ## Reference projects (`external/`, read-only)
 
+### Grok Web SDK comparison
+
+The [Grok Web SDK](../external/grok-web-sdk/README.md) is a reference checkout. The comparison uses its pinned source and the AAO command help.
+
+| Capability | AAO | Grok Web SDK |
+| --- | --- | --- |
+| Sign-in and browser | Manual sign-in with a saved Chrome profile, login status, and explicit browser close. | Manual sign-in with a saved Chrome profile, a bundled Chromium installer, and optional Browserless CDP through Python. |
+| Text chat | Sends new prompts and continues existing chats by ID, URL, or exact title. `web.ask` returns the reply and URL. The CLI shows up to 500 reply characters and defaults `--expect` to the smoke test's answer even with a custom prompt. | Sends each prompt in a new conversation, prints the full captured reply, and separates the reasoning header when present. HTTP, MCP, and Python also return the conversation URL. |
+| Chat and project management | Lists and searches chats, pins and unpins them, moves them into and out of projects, and lists, creates, or deletes projects. | The public interfaces cover prompt submission and media generation. |
+| Imagine images | No Grok Imagine image command. | Generates and downloads images with Speed or Quality, aspect ratio, and image count (`Auto`, `4`, `8`, or `12`). |
+| Imagine video | No Grok Imagine video command. | Generates and downloads videos at `480p` or `720p` for `6s` or `10s`, with aspect ratio selection. The Python API also accepts a reference image for image-to-video. |
+| Programmatic interfaces | Python functions for Grok chat and project operations. | Python API, local HTTP API, and stdio MCP server for chat and media generation. |
+
+Both Imagine commands support a configurable download directory and print saved file paths. HTTP and Python media results also carry available media URLs and the conversation URL. The SDK CLI offers `2:3`, `3:2`, `1:1`, `9:16`, and `16:9` for both modes. This comparison did not run live Grok requests.
+
+### Other reference projects
+
 - **mcp-web-llm** — Playwright adapters (`models/<site>.py`, base class `models/base.py`) for ChatGPT, Claude, Gemini, DeepSeek, Grok, Qwen, over CDP to a dedicated Chrome (`--remote-debugging-port=9222 --user-data-dir=...`).
 - **MuseBridge** — Muse web UI exposed as an Anthropic Messages API (`127.0.0.1:8765/v1/messages`) for Claude Code; its headed `login` command auto-discovers composer/send/message selectors into a config file. Muse access is region-restricted.
 - **browser-harness** — CDP control of the user's running Chrome with per-domain skills (`agent-workspace/domain-skills/`) and interaction skills (uploads, iframes, shadow DOM, dialogs).
