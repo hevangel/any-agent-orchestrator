@@ -120,6 +120,35 @@ playwright-cli -s=<target> snapshot                 # get element refs, then fil
 playwright-cli -s=<target> state-save               # persist the human's login
 ```
 
+### Gemini Notebook CLI (`nlm`)
+
+Prefer authenticating the [Gemini Notebook CLI](external/gemini-notebook-mcp-cli) through `playwright-cli` running installed Google Chrome. Reuse the signed-in Gemini Chrome profile when it belongs to the intended account. If it is already open, close that Playwright session before reopening the profile with a Chrome DevTools Protocol (CDP) port. The human signs in if Google prompts.
+
+Save this Playwright config as `temp/notebooklm-playwright-cdp.json` to expose CDP on loopback during login.
+
+```json
+{
+  "browser": {
+    "browserName": "chromium",
+    "launchOptions": {
+      "channel": "chrome",
+      "args": ["--remote-debugging-address=127.0.0.1", "--remote-debugging-port=18800"]
+    }
+  }
+}
+```
+
+Run from the repository root. Substitute the profile path if `AAO_WEB_PROFILE_DIR` is customized.
+
+```sh
+playwright-cli -s=notebooklm-cdp open https://notebook.google.com/ --browser=chrome --headed --persistent --profile="$HOME/.aao/browser-profiles/gemini" --config=temp/notebooklm-playwright-cdp.json
+uv tool run --from ./external/gemini-notebook-mcp-cli nlm login --provider openclaw --cdp-url http://127.0.0.1:18800 --profile playwright --storage protected
+playwright-cli -s=notebooklm-cdp close
+uv tool run --from ./external/gemini-notebook-mcp-cli nlm notebook list --profile playwright
+```
+
+The CLI calls its external CDP provider `openclaw`. After login, reuse `--profile playwright` for notebook and source commands. Chrome can stay closed while the saved login is valid.
+
 ## Docker credentials (optional container)
 
 Docker is optional: the orchestrator, tests and drivers must all work without it, and the `docker` driver mode and its e2e cases skip when the image is not built.
