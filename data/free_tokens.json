@@ -1,6 +1,6 @@
 {
   "schema": "free-tokens-v1",
-  "updated_at": "2026-11-18T15:13:00Z",
+  "updated_at": "2026-11-19T15:22:00Z",
   "updated_by": "ChatGPT daily AI token & media deals",
   "notes": "Free token, credit and free-tier offers usable by the agents in agents.json. Maintained daily by an agent following prompts/daily_data_update.md; every entry needs a source URL and a verification date. Validate with: uv run aao free-tokens validate",
   "sources": [
@@ -22,8 +22,8 @@
       "url": "https://platform.iteracompute.com/free/",
       "expires": "2026-11-24",
       "status": "active",
-      "verified_at": "2026-11-18",
-      "notes": "No credit card or recharge; verify email. Auto model via OpenAI-compatible API; 30M combined input/output tokens per UTC calendar month, 128K context, 8,192 max output, one queued/running request per account, shared idle capacity and no SLA. No automatic paid overage; monthly limit returns 429. Free promotion ends Nov 24 00:00 Pacific; $10 cumulative net recharge unlocks 100M/month, $50 unlocks 300M/month (purchase-gated). Model may change."
+      "verified_at": "2026-11-19",
+      "notes": "No card/recharge for current promotional access; email verification. Auto routes Qwen3.8/DeepSeek models via OpenAI-compatible API, 30M input+output tokens per UTC month, 128K context, 8,192 output, one in-flight request and shared capacity with queues/no SLA. IMPORTANT: at 00:00 Pacific Nov 24, no-purchase Auto access ends; only users with a positive net recharge completed BEFORE the cutoff or current paid plan retain free access. Recharges after cutoff do not grant free benefits. No automatic paid overage; monthly limit returns 429. Avoid sensitive data; no ZDR guarantee."
     },
     {
       "id": "vercel-ai-gateway-free",
@@ -43,7 +43,7 @@
       "url": "https://vercel.com/docs/ai-gateway/pricing",
       "expires": null,
       "status": "active",
-      "verified_at": "2026-11-18",
+      "verified_at": "2026-11-19",
       "notes": "No credit purchase required for eligible free team; first request starts credit cycle; purchasing credits terminates recurring grant. Paid models consume the $5 balance. Auto top-up is disabled by default; leave disabled to avoid unexpected billing. No announced end date."
     },
     {
@@ -127,7 +127,7 @@
       "url": "https://openrouter.ai/nvidia/nemotron-3-ultra-550b-a55b:free",
       "expires": null,
       "status": "active",
-      "verified_at": "2026-11-17",
+      "verified_at": "2026-11-19",
       "notes": "55B active / 550B total MoE, 1M context, coding/reasoning/orchestration. Free endpoint logs inputs and outputs for security and NVIDIA model improvement; do not upload confidential information or personal data. Standard OpenRouter free request caps."
     },
     {
@@ -185,7 +185,7 @@
       "url": "https://openrouter.ai/recraft/recraft-v4.1-flash-v2:free",
       "expires": "2026-11-28",
       "status": "active",
-      "verified_at": "2026-11-17",
+      "verified_at": "2026-11-19",
       "notes": "Text-to-image only, no image inputs, style references or editing; palette and background controls. Free variant subject to OpenRouter 50 requests/day and 20/min unless eligible for paid quota upgrade; no fixed image allowance; ends November 28."
     },
     {
@@ -205,7 +205,7 @@
       "url": "https://vercel.com/changelog/parallel-decisions-now-available-on-ai-gateway-for-free",
       "expires": "2026-11-23",
       "status": "active",
-      "verified_at": "2026-11-18",
+      "verified_at": "2026-11-19",
       "notes": "Web-grounded decision API, not ordinary chat completion; Vercel AI Gateway account, no separate Parallel account; exact promotional request cap/card requirements not specified."
     },
     {
@@ -322,7 +322,7 @@
       "url": "https://hiapi.ai/en/promotions/signup-bonus-200",
       "expires": "2035-01-01",
       "status": "active",
-      "verified_at": "2026-11-18",
+      "verified_at": "2026-11-19",
       "notes": "New accounts get 200 credits for API and Playground, worth $0.10 at provider's 2,000 credits/$1 conversion. No purchase advertised for signup; payment-card and actual eligibility untested. Upcoming Nov 24-30 DeepSeek V4.1 Flash 10M tokens/day requires at least one successful account top-up (any amount) according to HiAPI's official Nov 10 checklist; NOT a no-purchase grant. Top-up bonus 5-10% and media spend-back 5-20% are purchase-gated. Trial credits alone may be insufficient for video generation."
     },
     {
@@ -339,8 +339,49 @@
       "url": "https://hiapi.ai/en/promotions/seedance-2-5-flash-launch-20261118-8-fold",
       "expires": "2026-11-24",
       "status": "active",
-      "verified_at": "2026-11-18",
+      "verified_at": "2026-11-19",
       "notes": "PAID inference discount, not free tokens. Automatically applies to all users, no promo code, cannot stack with other model promotions. Supports 480p/720p, 4-30 seconds, synchronized audio; text-to-video, image-to-video, reference-to-video with up to 10 images and 5 audio clips. Official exact event ends November 25 at 07:00 Beijing (November 24 at 15:00 Pacific). Account and funded balance likely required for paid usage; card requirement unverified."
+    },
+    {
+      "id": "vercel-parallel-fast-web-search",
+      "provider": "Vercel / Parallel",
+      "offer": "Parallel fast web search free on AI Gateway and eve",
+      "kind": "promo",
+      "amount": "Free Parallel web search in fast mode through January 31, 2027",
+      "agent_ids": [
+        "opencode",
+        "pi",
+        "hermes"
+      ],
+      "access": [
+        "api"
+      ],
+      "url": "https://vercel.com/changelog/parallel-web-search-is-free-on-ai-gateway-and-eve-through-january-31",
+      "expires": "2027-01-31",
+      "status": "active",
+      "verified_at": "2026-11-19",
+      "notes": "NEW Nov 18, 2026. Parallel fast-mode web search tool through Vercel AI Gateway or eve, no separate Parallel API key. Use gateway.tools.parallelSearch({mode:'fast'}); other modes billed at standard pricing, and the model's own inference may be billable. Zero Data Retention enabled by default. No fixed request cap stated; Vercel account required, card requirement not stated. Valuable for live documentation lookup and research agents; not a text-generating model."
+    },
+    {
+      "id": "openrouter-particle-1-free",
+      "provider": "OpenRouter / Particle AI",
+      "offer": "Particle-1 free agentic coding API",
+      "kind": "free-tier",
+      "amount": "Free input and output tokens",
+      "agent_ids": [
+        "opencode",
+        "pi",
+        "hermes",
+        "kilo"
+      ],
+      "access": [
+        "api"
+      ],
+      "url": "https://openrouter.ai/particle-ai/particle-1:free",
+      "expires": null,
+      "status": "active",
+      "verified_at": "2026-11-19",
+      "notes": "Released Oct 28, 2026; newly identified, not a new launch this week. Agentic coding model post-trained on DeepSeek V4.1 Flash for token-efficient terminal and codebase workflows. 1,048,576 context, 131,072 max output, tool calls and JSON-schema structured output, image/text input. Free endpoint rate-limited by OpenRouter account quotas, no credit purchase required; provider privacy and retention terms unverified. Test token-efficiency vs Ling/Inkling on verifiable coding tasks."
     }
   ]
 }
