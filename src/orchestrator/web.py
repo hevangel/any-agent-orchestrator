@@ -93,6 +93,8 @@ TARGETS = {
     "muse": {"url": "https://muse.ai/", "composer": ["textarea[placeholder='Message']", "textarea",
                                                      "div[contenteditable='true']"], "chat": True},
     "zai": {"url": "https://chat.z.ai/", "composer": ["textarea", "div[contenteditable='true']"], "chat": True},
+    # The site opens a paired computer's task list. Existing tasks are selected in the UI.
+    "autoclaw": {"url": "https://autoclaw-remote-web.z.ai/", "chat": False},
     # Codex is a mode of chatgpt.com (web_codex.py, `aao codex`); same account, so it shares the
     # chatgpt profile and browser session. Here only the login check.
     "codex-cloud": {"url": "https://chatgpt.com/", "profile": "chatgpt",
@@ -362,6 +364,10 @@ def _run_page(target, prompt=None, expect=None, timeout_s=120, settle_ms=4000, p
     """One page check or prompt turn. `url` opens that page (e.g. an existing chat) instead of a new chat.
     `files` (local paths) and `repo` (GitHub URL) are attached first; `mode` picks the composer mode."""
     cfg = TARGETS[target]
+    if target == "autoclaw":
+        from orchestrator import web_autoclaw
+
+        return web_autoclaw.page("status", passive=passive)
     if passive and prompt:
         raise ValueError("a passive page check cannot send a prompt")
     if (files or repo) and not cfg.get("attach"):
@@ -451,6 +457,13 @@ def ask(target, prompt, expect, timeout_s=120, settings=None, screenshot_path=No
         files=None, repo=None, mode=None):
     """Send one prompt; `chat` (id, URL or exact title) continues that chat instead of starting a new one.
     `files` / `repo` attach local files / a GitHub repository first (gemini); `mode` is chat or task (gemini)."""
+    if target == "autoclaw":
+        from orchestrator import web_autoclaw
+
+        if files or repo or mode:
+            raise ValueError("AutoClaw accepts text prompts only")
+        return web_autoclaw.control("ask", chat=chat, prompt=prompt, expect=expect,
+                                    timeout_s=timeout_s, settings=settings, screenshot_path=screenshot_path)
     ok, _, err = open_target(target, settings=settings)
     if not ok:
         return {"target": target, "ok": False, "error": err}
