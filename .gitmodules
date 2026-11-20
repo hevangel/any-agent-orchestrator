@@ -31,3 +31,6 @@
 [submodule "external/grok-web-sdk"]
 	path = external/grok-web-sdk
 	url = https://github.com/ashwaniarya/grok-web-sdk.git
+[submodule "external/gemini-notebook-mcp-cli"]
+	path = external/gemini-notebook-mcp-cli
+	url = https://github.com/jacob-bd/gemini-notebook-mcp-cli.git
