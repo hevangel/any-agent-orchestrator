@@ -55,9 +55,9 @@ uv run aao web ask autoclaw --chat "Session title" --prompt "Summarize our discu
 uv run aao web close autoclaw
 ```
 
-On the computer running Zwork, open **Settings → Remote Control**. Open its pairing link in the Chrome window launched by `aao web login autoclaw`, approve the pairing in Zwork, and connect to the computer in Chrome. The browser keeps the pairing in the dedicated `autoclaw` profile. Zwork must stay running for remote control to work.
+On the computer running Zwork, open **Settings → Remote Control**. Open its pairing link in the Chrome window launched by `aao web login autoclaw`, approve the pairing in Zwork, and connect to the computer in Chrome. The browser keeps the pairing in the dedicated `autoclaw` profile. AAO can find the connected tab when the pairing link opens a second one. Zwork must stay running for remote control to work.
 
-Use the exact, unique session title from `sessions`. `read` returns the user and assistant messages currently loaded in the transcript. `ask` sends one text prompt to the chosen session and waits for its reply. It reports a busy session, a disconnected computer, or a pending question or approval so the operator can handle it in Chrome. `status`, `sessions`, `read`, and `ask` support `--json`. `ask` also accepts an optional `--expect` regex.
+Use the exact, unique session title from `sessions`. `read` returns the user and assistant messages currently loaded in the transcript. `ask` sends one text prompt to the chosen session and waits for its reply. If Zwork cannot load the transcript, AAO reopens the task once and reports any remaining error before submitting a prompt. It also reports a busy session, a disconnected computer, or a pending question or approval so the operator can handle it in Chrome. `status`, `sessions`, `read`, and `ask` support `--json`. `ask` also accepts an optional `--expect` regex.
 
 The web UI selects sessions through the task list without changing the URL. The driver scopes replies to the new user message in `transcript-view` and uses the task status badge and queue markers to wait for completion.
 

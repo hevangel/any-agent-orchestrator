@@ -11,6 +11,17 @@ SCRIPT = r"""async page => {
   const cfg = __CFG__;
   const result = fields => JSON.stringify({ url: cfg.url, ...fields });
   const fail = (stage, reason, fields) => result({ ok: false, stage, reason, ...fields });
+  const sites = [page, ...page.context().pages().filter(tab => tab !== page)]
+    .filter(tab => tab.url().startsWith(cfg.url));
+  // Pairing links can open a second tab. Prefer a live connection and reuse a remembered computer
+  // if every tab is disconnected. Only inspect tabs on the AutoClaw origin.
+  const findTab = async marker => {
+    for (const tab of sites) {
+      if (await tab.locator(marker).filter({ visible: true }).count().catch(() => 0)) return tab;
+    }
+  };
+  page = await findTab('[data-testid=home-screen], [data-testid=chat-screen]')
+    || await findTab('[data-testid=device-row]') || page;
   const test = name => page.getByTestId(name).filter({ visible: true });
   const home = test('home-screen');
   const chat = test('chat-screen');
@@ -59,14 +70,24 @@ SCRIPT = r"""async page => {
     ? 'More than one session has this title. Give the session a unique title in Zwork.'
     : 'Session not found. Run aao web sessions autoclaw to see available titles.',
     { loggedIn: true, session: cfg.chat });
-  await selected.click({ timeout: 5000 });
   const transcript = chat.getByTestId('transcript-view');
   const heading = chat.locator('.capsule-title').and(page.getByText(cfg.chat, { exact: true }));
-  if (!await waitFor(heading) || !await waitFor(transcript))
-    return fail('session', 'The selected session did not open.', { loggedIn: true });
-  if (!await test('chat-skeleton').first().waitFor({ state: 'hidden', timeout: 15000 }).then(() => true, () => false)
-      || await test('snapshot-error').count())
-    return fail('session', 'AutoClaw could not load the transcript.', { loggedIn: true });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await selected.click({ timeout: 5000 });
+    if (!await waitFor(heading) || !await waitFor(transcript))
+      return fail('session', 'The selected session did not open.', { loggedIn: true });
+    const loaded = await test('chat-skeleton').first().waitFor({ state: 'hidden', timeout: 15000 })
+      .then(() => true, () => false);
+    const error = (await test('snapshot-error').allTextContents()).join('\n');
+    if (loaded && !error) break;
+    // Zwork offers a return-to-list action on transcript errors. Retry opening once before sending.
+    const back = test('snapshot-back');
+    if (attempt || !await back.count()) {
+      const reason = error ? 'Zwork could not load the transcript. ' + error : 'Zwork timed out loading the transcript.';
+      return fail('session', reason, { loggedIn: true, session: cfg.chat });
+    }
+    await back.click({ timeout: 5000 });
+  }
 
   const messages = () => transcript.locator('[data-testid=tr-user], [data-testid=tr-output]')
     .evaluateAll(elements => elements.map(el => el.dataset.testid === 'tr-user'
