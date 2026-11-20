@@ -25,6 +25,7 @@ Selectors below come from the reference adapters at their pinned submodule commi
 | Remote Codex | `https://chatgpt.com/` in **Codex mode** (threads `/local/<id>`) | contenteditable "Do anything" | **Studied (reading and questions), see "Codex on chatgpt.com"** | `web_codex.py`; shares the `chatgpt` login |
 | Google Flow | `https://flow.google.com/` | project page: agent box "What do you want to create?" | **Studied and scripted (projects, media, downloads, agent options; generation not driven), see "Google Flow"** | `web_flow.py`; shares the `gemini` login |
 | Z.ai coder | `https://chat.z.ai/` | discover with `snapshot` | discover with `snapshot` | none yet: use MuseBridge's auto-discovery approach |
+| AutoClaw (Zwork Remote Control) | `https://autoclaw-remote-web.z.ai/` | `send-input` | Existing remote sessions and task completion | `web_autoclaw.py` |
 
 ## Scripted recipes (`src/orchestrator/web.py`)
 
@@ -42,6 +43,23 @@ Turn: open the target URL (always a new chat) → count assistant turns → clic
 `aao web ask <t> --chat <id|url|title>` continues an existing chat instead of opening a new one (a title is resolved through the chat list below).
 
 A new prompt always reloads the target's new-chat URL first: the shared browser may be left on another chat, a project page or another mode, and the prompt would land there (seen on Grok, where a reused project page put the new chat into the project). Targets with several modes on one page declare `mode` (chatgpt: switch to ChatGPT, since Codex mode shares the page).
+
+## AutoClaw remote sessions (`src/orchestrator/web_autoclaw.py`)
+
+```sh
+uv run aao web login autoclaw
+uv run aao web status autoclaw
+uv run aao web sessions autoclaw
+uv run aao web read autoclaw --chat "Session title"
+uv run aao web ask autoclaw --chat "Session title" --prompt "Summarize our discussion" --timeout 300
+uv run aao web close autoclaw
+```
+
+On the computer running Zwork, open **Settings → Remote Control**. Open its pairing link in the Chrome window launched by `aao web login autoclaw`, approve the pairing in Zwork, and connect to the computer in Chrome. The browser keeps the pairing in the dedicated `autoclaw` profile. Zwork must stay running for remote control to work.
+
+Use the exact, unique session title from `sessions`. `read` returns the user and assistant messages currently loaded in the transcript. `ask` sends one text prompt to the chosen session and waits for its reply. It reports a busy session, a disconnected computer, or a pending question or approval so the operator can handle it in Chrome. `status`, `sessions`, `read`, and `ask` support `--json`. `ask` also accepts an optional `--expect` regex.
+
+The web UI selects sessions through the task list without changing the URL. The driver scopes replies to the new user message in `transcript-view` and uses the task status badge and queue markers to wait for completion.
 
 ## Chat list (`src/orchestrator/web_chats.py`)
 

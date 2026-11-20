@@ -80,6 +80,31 @@ def cmd_prices(args):
 def cmd_web(args):
     from orchestrator import drivers, web
 
+    if args.action in ("sessions", "read"):
+        from orchestrator import web_autoclaw
+
+        if args.target != "autoclaw" or args.all:
+            print(f"Use aao web {args.action} autoclaw", file=sys.stderr)
+            return 1
+        try:
+            result = web_autoclaw.control(args.action, chat=args.chat)
+        except ValueError as exc:
+            result = {"ok": False, "reason": str(exc)}
+        if args.json:
+            _print(result, True)
+        elif not result.get("ok"):
+            print(result.get("reason") or result.get("error"), file=sys.stderr)
+        elif args.action == "sessions":
+            if not result["sessions"]:
+                print("No AutoClaw sessions")
+            for session in result["sessions"]:
+                workspace = f" ({session['workspace']})" if session["workspace"] else ""
+                print(f"  {session['status']:12} {session['title']}{workspace}")
+        else:
+            print(f"{result['session']} [{result['status']}]")
+            for message in result["messages"]:
+                print(f"\n{message['role']}: {message['text']}")
+        return 0 if result.get("ok") else 1
     targets = list(web.TARGETS) if args.all or not args.target else [args.target]
     if args.action == "close":  # browsers stay open between commands (AAO_WEB_KEEP_OPEN); close them here
         names = {web.login_name(t) for t in targets if web.is_open(t)}
@@ -93,8 +118,12 @@ def cmd_web(args):
             result = web.login(target)
         elif args.action == "status":
             result = web.status(target)
+        elif target == "autoclaw" and (args.target != target or args.all):
+            continue  # AutoClaw requires explicit selection of an existing task.
+        elif target == "autoclaw" and args.prompt is None:
+            result = {"ok": False, "reason": "AutoClaw requires an explicit --prompt and --chat"}
         else:
-            prompt, expect = drivers.check_prompt()
+            prompt, expect = (args.prompt, None) if target == "autoclaw" else drivers.check_prompt()
             try:
                 result = web.ask(target, args.prompt or prompt, args.expect or expect, chat=args.chat,
                                  files=args.file, repo=args.repo, mode=args.mode, timeout_s=args.timeout)
@@ -102,12 +131,16 @@ def cmd_web(args):
                 result = {"ok": False, "error": str(exc)}
         good = result.get("ok", result.get("loggedIn"))
         failed += not good
+        if args.json and args.target == target == "autoclaw" and not args.all and args.action != "login":
+            _print(result, True)
+            continue
         detail = result.get("reason") or result.get("error") or result.get("url") or ""
         print(f"  {target:16} {'OK ' if good else 'NO '} {detail}")
         if result.get("taskStatus"):
             print(f"  {'':16} task: {result['taskStatus']}")
         if result.get("reply"):
-            print(f"  {'':16} reply: {result['reply'][:500]}")
+            reply = result["reply"] if target == "autoclaw" else result["reply"][:500]
+            print(f"  {'':16} reply: {reply}")
     return 1 if failed else 0
 
 
@@ -506,17 +539,18 @@ def main(argv=None):
     p.set_defaults(func=cmd_prices)
 
     p = sub.add_parser("web", help="AI chat web apps through playwright-cli with saved login profiles")
-    p.add_argument("action", choices=["login", "status", "ask", "close"],
-                   help="close: close the kept-open browser(s); every other command reuses an open one")
-    p.add_argument("target", nargs="?", help="chatgpt, claude, gemini, grok, muse, zai, codex-cloud, claude-code-web")
+    p.add_argument("action", choices=["login", "status", "ask", "close", "sessions", "read"],
+                   help="sessions/read: list AutoClaw tasks or read one; close: close kept-open browsers")
+    p.add_argument("target", nargs="?", help="chatgpt, claude, gemini, grok, muse, zai, autoclaw, codex-cloud, claude-code-web")
     p.add_argument("--all", action="store_true")
     p.add_argument("--prompt")
     p.add_argument("--expect", help="regex the reply must match")
-    p.add_argument("--chat", help="ask: continue this chat (id, URL or exact title) instead of a new one")
+    p.add_argument("--chat", help="ask: continue a chat (id, URL or title); AutoClaw ask/read require an exact title")
     p.add_argument("--file", action="append", help="ask: attach a local file (repeatable; gemini; zip a folder)")
     p.add_argument("--repo", help="ask: attach a GitHub repository or branch URL (gemini 'Import code')")
     p.add_argument("--mode", help="ask: composer mode, e.g. gemini chat|task")
     p.add_argument("--timeout", type=int, default=120, help="ask: seconds to wait for the reply")
+    p.add_argument("--json", action="store_true", help="AutoClaw status/sessions/read/ask: print structured results")
     p.set_defaults(func=cmd_web)
 
     p = sub.add_parser("chats", help="chat/session list of a web app: list, search, pin, sections/projects (groups)")
