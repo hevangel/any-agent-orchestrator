@@ -1,6 +1,6 @@
 {
   "schema": "free-tokens-v1",
-  "updated_at": "2026-11-19T15:22:00Z",
+  "updated_at": "2026-11-20T16:00:00Z",
   "updated_by": "ChatGPT daily AI token & media deals",
   "notes": "Free token, credit and free-tier offers usable by the agents in agents.json. Maintained daily by an agent following prompts/daily_data_update.md; every entry needs a source URL and a verification date. Validate with: uv run aao free-tokens validate",
   "sources": [
@@ -22,7 +22,7 @@
       "url": "https://platform.iteracompute.com/free/",
       "expires": "2026-11-24",
       "status": "active",
-      "verified_at": "2026-11-19",
+      "verified_at": "2026-11-20",
       "notes": "No card/recharge for current promotional access; email verification. Auto routes Qwen3.8/DeepSeek models via OpenAI-compatible API, 30M input+output tokens per UTC month, 128K context, 8,192 output, one in-flight request and shared capacity with queues/no SLA. IMPORTANT: at 00:00 Pacific Nov 24, no-purchase Auto access ends; only users with a positive net recharge completed BEFORE the cutoff or current paid plan retain free access. Recharges after cutoff do not grant free benefits. No automatic paid overage; monthly limit returns 429. Avoid sensitive data; no ZDR guarantee."
     },
     {
@@ -43,7 +43,7 @@
       "url": "https://vercel.com/docs/ai-gateway/pricing",
       "expires": null,
       "status": "active",
-      "verified_at": "2026-11-19",
+      "verified_at": "2026-11-20",
       "notes": "No credit purchase required for eligible free team; first request starts credit cycle; purchasing credits terminates recurring grant. Paid models consume the $5 balance. Auto top-up is disabled by default; leave disabled to avoid unexpected billing. No announced end date."
     },
     {
@@ -64,7 +64,7 @@
       "url": "https://openrouter.ai/inclusionai/ling-3.2-flash:free",
       "expires": null,
       "status": "active",
-      "verified_at": "2026-11-17",
+      "verified_at": "2026-11-20",
       "notes": "Text/image input, tool calling, ~1M context; free :free variant needs no credit purchase; standard OpenRouter account-level 50 requests/day and 20/min without top-up; provider data terms require review."
     },
     {
@@ -106,7 +106,7 @@
       "url": "https://openrouter.ai/baidu/ernie-5.5-flash-preview:free",
       "expires": null,
       "status": "active",
-      "verified_at": "2026-11-17",
+      "verified_at": "2026-11-20",
       "notes": "Tool calling and structured outputs, ~1M context; OpenRouter :free rate limits; provider-specific data retention should be checked."
     },
     {
@@ -127,7 +127,7 @@
       "url": "https://openrouter.ai/nvidia/nemotron-3-ultra-550b-a55b:free",
       "expires": null,
       "status": "active",
-      "verified_at": "2026-11-19",
+      "verified_at": "2026-11-20",
       "notes": "55B active / 550B total MoE, 1M context, coding/reasoning/orchestration. Free endpoint logs inputs and outputs for security and NVIDIA model improvement; do not upload confidential information or personal data. Standard OpenRouter free request caps."
     },
     {
@@ -185,7 +185,7 @@
       "url": "https://openrouter.ai/recraft/recraft-v4.1-flash-v2:free",
       "expires": "2026-11-28",
       "status": "active",
-      "verified_at": "2026-11-19",
+      "verified_at": "2026-11-20",
       "notes": "Text-to-image only, no image inputs, style references or editing; palette and background controls. Free variant subject to OpenRouter 50 requests/day and 20/min unless eligible for paid quota upgrade; no fixed image allowance; ends November 28."
     },
     {
@@ -205,7 +205,7 @@
       "url": "https://vercel.com/changelog/parallel-decisions-now-available-on-ai-gateway-for-free",
       "expires": "2026-11-23",
       "status": "active",
-      "verified_at": "2026-11-19",
+      "verified_at": "2026-11-20",
       "notes": "Web-grounded decision API, not ordinary chat completion; Vercel AI Gateway account, no separate Parallel account; exact promotional request cap/card requirements not specified."
     },
     {
@@ -226,7 +226,7 @@
       "url": "https://openrouter.ai/collections/free-models",
       "expires": null,
       "status": "active",
-      "verified_at": "2026-11-16",
+      "verified_at": "2026-11-20",
       "notes": "Model openrouter/free routes to an eligible zero-priced model, which may vary per call. OpenRouter :free variants require no credit purchase; default 50 requests/day and 20/min, 1,000/day after $10 purchased. No fixed token allowance."
     },
     {
@@ -322,7 +322,7 @@
       "url": "https://hiapi.ai/en/promotions/signup-bonus-200",
       "expires": "2035-01-01",
       "status": "active",
-      "verified_at": "2026-11-19",
+      "verified_at": "2026-11-20",
       "notes": "New accounts get 200 credits for API and Playground, worth $0.10 at provider's 2,000 credits/$1 conversion. No purchase advertised for signup; payment-card and actual eligibility untested. Upcoming Nov 24-30 DeepSeek V4.1 Flash 10M tokens/day requires at least one successful account top-up (any amount) according to HiAPI's official Nov 10 checklist; NOT a no-purchase grant. Top-up bonus 5-10% and media spend-back 5-20% are purchase-gated. Trial credits alone may be insufficient for video generation."
     },
     {
@@ -339,7 +339,7 @@
       "url": "https://hiapi.ai/en/promotions/seedance-2-5-flash-launch-20261118-8-fold",
       "expires": "2026-11-24",
       "status": "active",
-      "verified_at": "2026-11-19",
+      "verified_at": "2026-11-20",
       "notes": "PAID inference discount, not free tokens. Automatically applies to all users, no promo code, cannot stack with other model promotions. Supports 480p/720p, 4-30 seconds, synchronized audio; text-to-video, image-to-video, reference-to-video with up to 10 images and 5 audio clips. Official exact event ends November 25 at 07:00 Beijing (November 24 at 15:00 Pacific). Account and funded balance likely required for paid usage; card requirement unverified."
     },
     {
@@ -359,7 +359,7 @@
       "url": "https://vercel.com/changelog/parallel-web-search-is-free-on-ai-gateway-and-eve-through-january-31",
       "expires": "2027-01-31",
       "status": "active",
-      "verified_at": "2026-11-19",
+      "verified_at": "2026-11-20",
       "notes": "NEW Nov 18, 2026. Parallel fast-mode web search tool through Vercel AI Gateway or eve, no separate Parallel API key. Use gateway.tools.parallelSearch({mode:'fast'}); other modes billed at standard pricing, and the model's own inference may be billable. Zero Data Retention enabled by default. No fixed request cap stated; Vercel account required, card requirement not stated. Valuable for live documentation lookup and research agents; not a text-generating model."
     },
     {
@@ -380,8 +380,92 @@
       "url": "https://openrouter.ai/particle-ai/particle-1:free",
       "expires": null,
       "status": "active",
-      "verified_at": "2026-11-19",
+      "verified_at": "2026-11-20",
       "notes": "Released Oct 28, 2026; newly identified, not a new launch this week. Agentic coding model post-trained on DeepSeek V4.1 Flash for token-efficient terminal and codebase workflows. 1,048,576 context, 131,072 max output, tool calls and JSON-schema structured output, image/text input. Free endpoint rate-limited by OpenRouter account quotas, no credit purchase required; provider privacy and retention terms unverified. Test token-efficiency vs Ling/Inkling on verifiable coding tasks."
+    },
+    {
+      "id": "openrouter-perplexity-decider-v1-3",
+      "provider": "OpenRouter / Perplexity",
+      "offer": "Decider V1.3 free decision API",
+      "kind": "free-tier",
+      "amount": "$0/M input; $0/M output",
+      "agent_ids": [
+        "opencode",
+        "pi",
+        "hermes",
+        "kilo"
+      ],
+      "access": [
+        "api"
+      ],
+      "url": "https://openrouter.ai/perplexity/pplx-decider-v1.3:free",
+      "expires": null,
+      "status": "active",
+      "verified_at": "2026-11-20",
+      "notes": "Released Nov 12; no purchase needed for :free endpoint. 262K context, text/image state, probabilistic choice/score/classification and extraction; NOT a text-generation chat model. OpenRouter free account request limits apply (typically 50/day and 20/min; account/provider variations possible). No published expiry; data retention terms unverified."
+    },
+    {
+      "id": "openrouter-perplexity-decider-flash-v1-3",
+      "provider": "OpenRouter / Perplexity",
+      "offer": "Decider Flash V1.3 free decision API",
+      "kind": "free-tier",
+      "amount": "$0/M input; $0/M output",
+      "agent_ids": [
+        "opencode",
+        "pi",
+        "hermes",
+        "kilo"
+      ],
+      "access": [
+        "api"
+      ],
+      "url": "https://openrouter.ai/perplexity/pplx-decider-flash-v1.3:free",
+      "expires": null,
+      "status": "active",
+      "verified_at": "2026-11-20",
+      "notes": "Released Nov 12; no purchase needed for :free endpoint. 262K context, lightweight high-volume probabilistic decisions and extraction; NOT chat completion. Free model rate limits, no published expiry, provider retention/card requirements unverified."
+    },
+    {
+      "id": "openrouter-nemotron-3-5-super-vl",
+      "provider": "OpenRouter / NVIDIA",
+      "offer": "Nemotron 3.5 Super VL free multimodal API",
+      "kind": "free-tier",
+      "amount": "$0/M input; $0/M output",
+      "agent_ids": [
+        "opencode",
+        "pi",
+        "hermes",
+        "kilo"
+      ],
+      "access": [
+        "api"
+      ],
+      "url": "https://openrouter.ai/nvidia/nemotron-3.5-super-vl:free",
+      "expires": null,
+      "status": "active",
+      "verified_at": "2026-11-20",
+      "notes": "Released Oct 15; newly cataloged, not a new launch. Text/image/video input, text output, 1M context, tool calling and JSON schema. Free endpoint logs requests for security and NVIDIA product improvement: DO NOT send confidential information or personal data, including faces/voices. OpenRouter free-model request caps; no announced expiry."
+    },
+    {
+      "id": "openrouter-recursive-flint",
+      "provider": "OpenRouter / Recursive",
+      "offer": "Flint free agentic coding API",
+      "kind": "free-tier",
+      "amount": "$0/M input; $0/M output",
+      "agent_ids": [
+        "opencode",
+        "pi",
+        "hermes",
+        "kilo"
+      ],
+      "access": [
+        "api"
+      ],
+      "url": "https://openrouter.ai/recursive/flint-v1.0:free",
+      "expires": null,
+      "status": "active",
+      "verified_at": "2026-11-20",
+      "notes": "Released Oct 21; newly cataloged, not a new launch. 262K context, 40B total/2.5B active MoE built for codebase edits, tests and debugging; tools and JSON (not schema-enforced). Free OpenRouter endpoint rate-limited, no credit purchase needed; no published expiry; provider data policy unverified."
     }
   ]
 }
