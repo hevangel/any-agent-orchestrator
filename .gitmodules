@@ -28,3 +28,6 @@
 [submodule "external/tokenmeter"]
 	path = external/tokenmeter
 	url = https://github.com/serkankorkut/tokenmeter.git
+[submodule "external/gemini-notebook-mcp-cli"]
+	path = external/gemini-notebook-mcp-cli
+	url = https://github.com/jacob-bd/gemini-notebook-mcp-cli.git
