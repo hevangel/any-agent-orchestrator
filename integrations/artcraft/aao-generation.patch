@@ -1,0 +1,1883 @@
+diff --git a/crates/desktop/artcraft/capabilities/default.json b/crates/desktop/artcraft/capabilities/default.json
+index 9e286eff53..87254ddc1f 100644
+--- a/crates/desktop/artcraft/capabilities/default.json
++++ b/crates/desktop/artcraft/capabilities/default.json
+@@ -26,9 +26,12 @@
+         },
+         {
+           "url": "http://localhost:12345"
++        },
++        {
++          "url": "http://127.0.0.1:8771/**"
+         }
+       ]
+     },
+     "opener:default"
+   ]
+-}
+\ No newline at end of file
++}
+diff --git a/frontend/apps/artcraft/app/src/Helpers/galleryModalTauriBindings.ts b/frontend/apps/artcraft/app/src/Helpers/galleryModalTauriBindings.ts
+index 5cc7a9a0f3..dc2ba12dda 100644
+--- a/frontend/apps/artcraft/app/src/Helpers/galleryModalTauriBindings.ts
++++ b/frontend/apps/artcraft/app/src/Helpers/galleryModalTauriBindings.ts
+@@ -1,5 +1,6 @@
+ import { MediaFileDelete } from "@storyteller/tauri-api";
+ import { listen } from "@tauri-apps/api/event";
++import { AAO_LIBRARY_UPDATED } from "~/components/generation-feed/aaoLibraryImports";
+
+ export const galleryModalDeleteMedia = (id: string) => MediaFileDelete(id);
+
+@@ -7,6 +8,7 @@ export const galleryModalSubscribeToMediaEvents = (handlers: {
+   onGenerationComplete: () => void;
+   onMediaDeleted: (mediaId: string) => void;
+ }) => {
++  window.addEventListener(AAO_LIBRARY_UPDATED, handlers.onGenerationComplete);
+   const unlistenGen = listen("generation-complete-event", () => {
+     handlers.onGenerationComplete();
+   });
+@@ -17,6 +19,7 @@ export const galleryModalSubscribeToMediaEvents = (handlers: {
+     if (token) handlers.onMediaDeleted(token);
+   });
+   return () => {
++    window.removeEventListener(AAO_LIBRARY_UPDATED, handlers.onGenerationComplete);
+     unlistenGen.then((fn) => fn());
+     unlistenDel.then((fn) => fn());
+   };
+diff --git a/frontend/apps/artcraft/app/src/components/generation-feed/AaoGeneration.tsx b/frontend/apps/artcraft/app/src/components/generation-feed/AaoGeneration.tsx
+new file mode 100644
+index 0000000000..22d8ef7628
+--- /dev/null
++++ b/frontend/apps/artcraft/app/src/components/generation-feed/AaoGeneration.tsx
+@@ -0,0 +1,497 @@
++import { useEffect, useRef, useState, type ReactNode } from "react";
++import { PopoverMenu } from "@storyteller/ui-popover";
++import { RatioIcon } from "lucide-react";
++import { isTauri } from "@tauri-apps/api/core";
++import { fetch as desktopFetch } from "@tauri-apps/plugin-http";
++import { KeyframeCards, ReferenceDeck, type DeckItem } from "@storyteller/ui-promptbox";
++import { GalleryModal } from "@storyteller/ui-gallery-modal";
++import { downloadMediaFileToDisk } from "./desktopMediaActions";
++import {
++  AAO_IMPORT_CHANGED,
++  enqueueAaoMedia,
++  getAaoLibraryImport,
++  getArtCraftLibraryOwner,
++  getArtCraftMediaUrl,
++  MediaHttpError,
++  queueAaoLibraryImport,
++  requestAaoMedia as request,
++  useAaoImportedMediaTokens,
++  type AaoImageRatio,
++  type AaoMediaJob,
++  type AaoMediaKind,
++} from "./aaoLibraryImports";
++
++interface Provider {
++  id: string;
++  label: string;
++  kind: AaoMediaKind;
++  available: boolean;
++  detail: string;
++  image_reference_limit?: number;
++}
++
++const IMAGE_RATIOS: AaoImageRatio[] = ["1:1", "16:9", "9:16", "4:3", "3:4"];
++const REFERENCE_TYPES = ["image/png", "image/jpeg", "image/webp"];
++const MAX_REFERENCE_BYTES = 8 * 1024 * 1024;
++
++interface VideoReference {
++  id: string;
++  url: string;
++  thumbnail?: string;
++}
++
++async function encodeReference(file: Blob): Promise<string> {
++  if (!REFERENCE_TYPES.includes(file.type) || file.size > MAX_REFERENCE_BYTES) {
++    throw new Error("Choose a PNG, JPEG, or WebP image up to 8 MiB.");
++  }
++  return new Promise((resolve, reject) => {
++    const reader = new FileReader();
++    reader.onload = () => resolve(reader.result as string);
++    reader.onerror = () => reject(new Error("Could not read the reference image."));
++    reader.readAsDataURL(file);
++  });
++}
++
++async function readVideoReference({ url }: VideoReference) {
++  if (url.startsWith("data:")) return url;
++  const fetchImage = isTauri() && /^https?:/i.test(url) ? desktopFetch : fetch;
++  const response = await fetchImage(url);
++  if (!response.ok) throw new Error("Could not load the reference image from My Library.");
++  const file = await response.blob();
++  if (REFERENCE_TYPES.includes(file.type) && file.size <= MAX_REFERENCE_BYTES) {
++    return encodeReference(file);
++  }
++  // Library images can come from providers that store other image formats.
++  const image = await createImageBitmap(file).catch(() => {
++    throw new Error("Could not decode the reference image from My Library.");
++  });
++  try {
++    const scale = Math.min(1, 2048 / Math.max(image.width, image.height));
++    const canvas = document.createElement("canvas");
++    canvas.width = Math.max(1, Math.round(image.width * scale));
++    canvas.height = Math.max(1, Math.round(image.height * scale));
++    const context = canvas.getContext("2d");
++    if (!context) throw new Error("Could not prepare the reference image.");
++    context.drawImage(image, 0, 0, canvas.width, canvas.height);
++    const prepared = await new Promise<Blob>((resolve, reject) => {
++      canvas.toBlob((blob) => blob ? resolve(blob)
++        : reject(new Error("Could not prepare the reference image.")), "image/webp", 0.92);
++    });
++    return encodeReference(prepared);
++  } finally {
++    image.close();
++  }
++}
++
++function VideoReferencePicker({
++  references,
++  onChange,
++  onError,
++  reading,
++  setReading,
++  limit,
++  firstFrame,
++}: {
++  references: VideoReference[];
++  onChange: (references: VideoReference[]) => void;
++  onError: (message?: string) => void;
++  reading: boolean;
++  setReading: (reading: boolean) => void;
++  limit: number;
++  firstFrame: boolean;
++}) {
++  const fileInput = useRef<HTMLInputElement>(null);
++  const [selection, setSelection] = useState<string[]>();
++  const generatedUploadTokens = useAaoImportedMediaTokens();
++  const remaining = limit - references.length;
++  const items: DeckItem[] = references.map((reference, index) => ({
++    id: reference.id,
++    kind: "image",
++    name: firstFrame ? "First frame" : `Image ${index + 1}`,
++    url: reference.thumbnail ?? reference.url,
++    previewUrl: reference.url,
++  }));
++  const addActions = [
++    { key: "upload", label: "Upload", onSelect: () => fileInput.current?.click() },
++    { key: "library", label: "Pick from library", onSelect: () => setSelection([]) },
++  ];
++  const addFiles = async (files: File[]) => {
++    setReading(true);
++    onError();
++    try {
++      const added = await Promise.all(files.map(async (file) => ({
++        id: crypto.randomUUID(),
++        url: await encodeReference(file),
++      })));
++      onChange([...references, ...added]);
++    } catch (error) {
++      onError(String(error));
++    } finally {
++      setReading(false);
++    }
++  };
++  return (
++    <>
++      <input
++        ref={fileInput}
++        type="file"
++        aria-label="Upload video reference images"
++        hidden
++        multiple={remaining > 1}
++        accept={REFERENCE_TYPES.join(",")}
++        onChange={(event) => {
++          const files = Array.from(event.target.files ?? []).slice(0, remaining);
++          event.target.value = "";
++          if (files.length) void addFiles(files);
++        }}
++      />
++      {reading ? (
++        <span role="status" className="text-sm">Reading images…</span>
++      ) : firstFrame ? (
++        <KeyframeCards
++          firstFrame={items[0]}
++          showLastFrame={false}
++          onFirstAddActions={addActions}
++          onRemoveFirst={() => onChange([])}
++        />
++      ) : (
++        <ReferenceDeck
++          items={items}
++          canAdd={remaining > 0}
++          addActions={addActions}
++          onRemove={(id) => onChange(references.filter((reference) => reference.id !== id))}
++          onClearAll={() => onChange([])}
++        />
++      )}
++      {selection && (
++        <GalleryModal
++          isOpen
++          mode="select"
++          forceFilter="image"
++          generatedUploadTokens={generatedUploadTokens}
++          maxSelections={remaining}
++          disabledItemIds={references.map(({ id }) => id)}
++          selectedItemIds={selection}
++          onClose={() => setSelection(undefined)}
++          onSelectItem={(id) => setSelection((selected = []) =>
++            selected.includes(id) ? selected.filter((item) => item !== id)
++              : remaining === 1 ? [id] : [...selected, id].slice(0, remaining),
++          )}
++          onUseSelected={(selected) => {
++            const chosen = selected.flatMap(({ id, fullImage, thumbnail }) =>
++              fullImage ? [{ id, url: fullImage, thumbnail: thumbnail ?? undefined }] : [],
++            );
++            if (!chosen.length) {
++              onError("The selected images are unavailable.");
++              return;
++            }
++            onError();
++            onChange([...references, ...chosen.slice(0, remaining)]);
++            setSelection(undefined);
++          }}
++        />
++      )}
++    </>
++  );
++}
++
++export function AaoAspectRatio({
++  ratio,
++  onChange,
++}: {
++  ratio?: AaoImageRatio;
++  onChange: (ratio?: AaoImageRatio) => void;
++}) {
++  return (
++    <PopoverMenu
++      items={[
++        { label: "Auto", selected: ratio === undefined },
++        ...IMAGE_RATIOS.map((value) => ({
++          label: value,
++          selected: ratio === value,
++        })),
++      ]}
++      onSelect={({ label }) =>
++        onChange(IMAGE_RATIOS.find((value) => value === label))
++      }
++      mode="toggle"
++      panelTitle="Aspect Ratio"
++      triggerIcon={<RatioIcon aria-label="Aspect ratio" className="h-4 w-4" />}
++    />
++  );
++}
++
++export function useAaoGeneration(kind: AaoMediaKind) {
++  const [providers, setProviders] = useState<Provider[] | undefined>();
++  const [selected, setSelected] = useState<string>();
++  const [online, setOnline] = useState(false);
++
++  useEffect(() => {
++    const controller = new AbortController();
++    const refresh = async () => {
++      try {
++        const response = await request("/providers", {
++          signal: controller.signal,
++        });
++        const catalog: Provider[] = await response.json();
++        setProviders(catalog.filter((provider) => provider.kind === kind));
++        setOnline(true);
++      } catch {
++        if (!controller.signal.aborted) setOnline(false);
++      }
++    };
++    void refresh();
++    const interval = setInterval(refresh, 10000);
++    return () => {
++      controller.abort();
++      clearInterval(interval);
++    };
++  }, [kind]);
++
++  return {
++    provider: providers?.find(
++      (provider) => provider.id === selected && provider.available,
++    ),
++    online,
++    items: providers?.map((provider) => ({
++      action: `aao:${provider.id}`,
++      label: provider.label,
++      description: online ? provider.detail : "AAO media service is offline",
++      selected: provider.id === selected && provider.available,
++      disabled: !online || !provider.available,
++    })) ?? [
++      {
++        label: "AAO providers",
++        description: "Start AAO locally with aao media-serve",
++        selected: false,
++        disabled: true,
++      },
++    ],
++    onSelect: ({ action }: { action?: string }) => {
++      setSelected(action?.startsWith("aao:") ? action.slice(4) : undefined);
++    },
++  };
++}
++
++export function AaoGeneration({
++  provider,
++  selector,
++  online,
++  initialVideoReference,
++}: {
++  provider: Provider;
++  selector: ReactNode;
++  online: boolean;
++  initialVideoReference?: VideoReference;
++}) {
++  const subject = provider.kind === "audio" ? "music" : provider.kind;
++  const storageKey = `aao-media-job:${provider.kind}:${provider.id}`;
++  const [prompt, setPrompt] = useState("");
++  const [ratio, setRatio] = useState<AaoImageRatio>();
++  const referenceLimit = provider.image_reference_limit ?? 0;
++  const [references, setReferences] = useState<VideoReference[]>(
++    () => referenceLimit && initialVideoReference ? [initialVideoReference] : [],
++  );
++  const [referenceError, setReferenceError] = useState<string>();
++  const [readingReferences, setReadingReferences] = useState(false);
++  const [jobId, setJobId] = useState<string | undefined>(
++    () => localStorage.getItem(storageKey) ?? undefined,
++  );
++  const [job, setJob] = useState<AaoMediaJob>();
++  const [busy, setBusy] = useState(false);
++  const [libraryImport, setLibraryImport] = useState(() =>
++    getAaoLibraryImport(jobId),
++  );
++  const [error, setError] = useState<string>();
++
++  useEffect(() => {
++    const updateImport = () => setLibraryImport(getAaoLibraryImport(jobId));
++    window.addEventListener(AAO_IMPORT_CHANGED, updateImport);
++    updateImport();
++    return () => window.removeEventListener(AAO_IMPORT_CHANGED, updateImport);
++  }, [jobId]);
++
++  useEffect(() => {
++    if (!jobId) return;
++    const controller = new AbortController();
++    let timer: ReturnType<typeof setTimeout>;
++    const poll = async () => {
++      try {
++        const response = await request(`/jobs/${jobId}`, {
++          signal: controller.signal,
++        });
++        const update: AaoMediaJob = await response.json();
++        if (controller.signal.aborted) return;
++        setJob(update);
++        setError(undefined);
++        if (update.state === "pending") timer = setTimeout(poll, 1200);
++      } catch (err) {
++        if (!controller.signal.aborted) {
++          setError(String(err));
++          if (err instanceof MediaHttpError && err.status === 404) {
++            setJob(undefined);
++            setJobId(undefined);
++            localStorage.removeItem(storageKey);
++          } else {
++            timer = setTimeout(poll, 3000);
++          }
++        }
++      }
++    };
++    void poll();
++    return () => {
++      controller.abort();
++      clearTimeout(timer);
++    };
++  }, [jobId, storageKey]);
++
++  const generate = async () => {
++    setBusy(true);
++    setError(undefined);
++    try {
++      const id = await enqueueAaoMedia(provider.id, provider.kind, prompt, {
++        aspect_ratio: ratio,
++        references: references.length
++          ? await Promise.all(references.map(readVideoReference))
++          : undefined,
++      });
++      localStorage.setItem(storageKey, id);
++      setJob({ state: "pending", files: [] });
++      setJobId(id);
++    } catch (err) {
++      setError(String(err));
++    } finally {
++      setBusy(false);
++    }
++  };
++
++  const download = async (name: string, index: number) => {
++    try {
++      const token = libraryImport?.files[index]?.token;
++      if (token) {
++        const url = await getArtCraftMediaUrl(token);
++        if (url) {
++          await downloadMediaFileToDisk(url, provider.kind, provider.id);
++          return;
++        }
++      }
++      const response = await request(`/jobs/${jobId}/files/${index}`);
++      const url = URL.createObjectURL(await response.blob());
++      const link = document.createElement("a");
++      link.href = url;
++      link.download = name;
++      link.click();
++      setTimeout(() => URL.revokeObjectURL(url), 30000);
++    } catch (err) {
++      setError(String(err));
++    }
++  };
++
++  const retryImport = async () => {
++    if (!jobId) return;
++    setError(undefined);
++    try {
++      const owner = await getArtCraftLibraryOwner();
++      if (!owner)
++        throw new Error("Sign in to ArtCraft to import into My Library.");
++      queueAaoLibraryImport(jobId, provider.kind, provider.id, owner);
++    } catch (err) {
++      setError(String(err));
++    }
++  };
++
++  const pending = Boolean(jobId && (!job || job.state === "pending"));
++  const savedToLibrary =
++    job?.state === "succeeded" &&
++    job.files.every((_, index) => !!libraryImport?.files[index]?.token);
++  return (
++    <div className="glass rounded-lg border border-ui-controls-border bg-ui-background p-4">
++      <div className="flex items-start gap-3">
++        {referenceLimit > 0 && (
++          <VideoReferencePicker
++            references={references}
++            onChange={setReferences}
++            onError={setReferenceError}
++            reading={readingReferences}
++            setReading={setReadingReferences}
++            limit={referenceLimit}
++            firstFrame={provider.id === "grok"}
++          />
++        )}
++        <textarea
++          aria-label={`Describe the ${subject} to generate with AAO`}
++          placeholder={`Describe the ${subject} to generate…`}
++          className="mb-3 w-full resize-y bg-transparent"
++          value={prompt}
++          onChange={(event) => setPrompt(event.target.value)}
++          maxLength={10000}
++          rows={3}
++        />
++      </div>
++      <div className="flex items-center justify-between gap-3">
++        <div className="flex flex-wrap items-center gap-2">
++          {selector}
++          {provider.kind === "image" && (
++            <AaoAspectRatio ratio={ratio} onChange={setRatio} />
++          )}
++        </div>
++        <button
++          type="button"
++          onClick={() => void generate()}
++          disabled={!online || busy || pending || readingReferences || !prompt.trim()}
++          className="rounded bg-primary px-4 py-2 text-white disabled:opacity-40"
++        >
++          {pending ? "Generating…" : `Generate ${subject}`}
++        </button>
++      </div>
++      {!online && (
++        <p role="status" className="mt-2 text-sm">
++          AAO media service is offline.
++        </p>
++      )}
++      {referenceError && <p role="alert" className="mt-2 text-sm">{referenceError}</p>}
++      {(error || job?.error) && (
++        <p role="alert" className="mt-2 text-sm">
++          {error || job?.error}
++        </p>
++      )}
++      {job?.state === "succeeded" && (
++        <div
++          className="mt-2 flex flex-wrap gap-3 text-sm"
++          aria-label="AAO results"
++        >
++          {job.files.map((name, index) => (
++            <button
++              key={index}
++              type="button"
++              className="underline"
++              onClick={() => void download(name, index)}
++            >
++              Download {name}
++            </button>
++          ))}
++          {savedToLibrary && <span role="status">Saved to My Library</span>}
++          {libraryImport && !libraryImport.error && !savedToLibrary && (
++            <span role="status">Saving to My Library…</span>
++          )}
++          {(!libraryImport || libraryImport.error) && (
++            <button
++              type="button"
++              className="underline"
++              onClick={() => void retryImport()}
++            >
++              {savedToLibrary
++                ? "Retry auto-download"
++                : libraryImport?.error
++                  ? "Retry library import"
++                  : "Import to My Library"}
++            </button>
++          )}
++          {libraryImport?.error && (
++            <span role="alert">{libraryImport.error}</span>
++          )}
++        </div>
++      )}
++    </div>
++  );
++}
+diff --git a/frontend/apps/artcraft/app/src/components/generation-feed/aaoLibraryImports.ts b/frontend/apps/artcraft/app/src/components/generation-feed/aaoLibraryImports.ts
+new file mode 100644
+index 0000000000..fff93d16e9
+--- /dev/null
++++ b/frontend/apps/artcraft/app/src/components/generation-feed/aaoLibraryImports.ts
+@@ -0,0 +1,330 @@
++import { fetch as desktopFetch } from "@tauri-apps/plugin-http";
++import { useEffect, useState } from "react";
++import {
++  HttpApiError,
++  MediaFilesApi,
++  MediaUploadApi,
++  UsersApi,
++} from "@storyteller/api";
++import {
++  CommandSuccessStatus,
++  DownloadUrl,
++  GetAppPreferences,
++} from "@storyteller/tauri-api";
++
++export type AaoMediaKind = "image" | "video" | "audio";
++export type AaoImageRatio = "1:1" | "16:9" | "9:16" | "4:3" | "3:4";
++
++export interface AaoMediaJob {
++  state: "pending" | "succeeded" | "failed";
++  files: string[];
++  error?: string;
++}
++
++export class MediaHttpError extends Error {
++  constructor(
++    readonly status: number,
++    message: string,
++  ) {
++    super(message);
++  }
++}
++
++export async function requestAaoMedia(path: string, options?: RequestInit) {
++  const fetchMedia = import.meta.env.DEV ? fetch : desktopFetch;
++  const base = import.meta.env.DEV ? "/aao-media" : "http://127.0.0.1:8771";
++  const response = await fetchMedia(`${base}${path}`, {
++    ...options,
++    headers: { "X-AAO-Studio": "1", ...options?.headers },
++  });
++  if (!response.ok) {
++    const error = await response.json().catch(() => null);
++    throw new MediaHttpError(
++      response.status,
++      typeof error?.detail === "string"
++        ? error.detail
++        : `AAO media service returned HTTP ${response.status}`,
++    );
++  }
++  return response;
++}
++
++interface FileImport {
++  uuid: string;
++  token?: string;
++  downloaded?: boolean;
++}
++
++interface LibraryImport {
++  kind: AaoMediaKind;
++  provider: string;
++  owner: string | null;
++  files: Record<number, FileImport>;
++  done?: boolean;
++  error?: string;
++  waitingForAccount?: boolean;
++  uploadRetry?: { attempts: number; nextAt: number };
++}
++
++const STORAGE_KEY = "aao-library-imports";
++const UPLOAD_RETRY_DELAYS_MS = [2000, 10000];
++const SIGN_IN_REQUIRED =
++  "Sign in to ArtCraft to save this result to My Library.";
++const LEGACY_SIGN_IN_REQUIRED =
++  "Sign in to ArtCraft, then retry the library import.";
++export const AAO_IMPORT_CHANGED = "aao-import-changed";
++export const AAO_LIBRARY_UPDATED = "aao-library-updated";
++let working = false;
++
++function readImports(): Record<string, LibraryImport> {
++  try {
++    return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
++  } catch {
++    return {};
++  }
++}
++
++function saveImport(id: string, job: LibraryImport) {
++  localStorage.setItem(
++    STORAGE_KEY,
++    JSON.stringify({ ...readImports(), [id]: job }),
++  );
++  window.dispatchEvent(new Event(AAO_IMPORT_CHANGED));
++}
++
++export function getAaoLibraryImport(id: string | undefined) {
++  return id ? readImports()[id] : undefined;
++}
++
++function readImportedMediaTokens(kind?: AaoMediaKind): ReadonlySet<string> {
++  const tokens = new Set<string>();
++  for (const job of Object.values(readImports())) {
++    if (kind && job.kind !== kind) continue;
++    for (const file of Object.values(job.files)) {
++      if (file.token) tokens.add(file.token);
++    }
++  }
++  return tokens;
++}
++
++export function useAaoImportedMediaTokens(kind?: AaoMediaKind) {
++  const [tokens, setTokens] = useState(() => readImportedMediaTokens(kind));
++  useEffect(() => {
++    const refresh = () => setTokens(readImportedMediaTokens(kind));
++    refresh();
++    window.addEventListener(AAO_LIBRARY_UPDATED, refresh);
++    refresh();
++    return () => window.removeEventListener(AAO_LIBRARY_UPDATED, refresh);
++  }, [kind]);
++  return tokens;
++}
++
++export async function getArtCraftLibraryOwner() {
++  const session = await new UsersApi().GetSession();
++  if (!session.success || !session.data) {
++    throw new Error("Could not check the ArtCraft session.");
++  }
++  if (!session.data.loggedIn) return null;
++  const user = session.data.user;
++  const owner = user?.user_token ?? user?.core_info?.user_token;
++  if (!owner)
++    throw new Error("ArtCraft returned a session without an account ID.");
++  return owner;
++}
++
++export function queueAaoLibraryImport(
++  id: string,
++  kind: AaoMediaKind,
++  provider: string,
++  owner: string | null,
++) {
++  const previous = getAaoLibraryImport(id);
++  if (previous?.done) return;
++  saveImport(id, {
++    kind,
++    provider,
++    owner: previous?.owner ?? owner,
++    files: previous?.files ?? {},
++  });
++}
++
++export async function enqueueAaoMedia(
++  provider: string,
++  kind: AaoMediaKind,
++  prompt: string,
++  options: { aspect_ratio?: AaoImageRatio; references?: string[] } = {},
++) {
++  const owner = await getArtCraftLibraryOwner().catch(() => null);
++  const response = await requestAaoMedia("/jobs", {
++    method: "POST",
++    headers: { "Content-Type": "application/json" },
++    body: JSON.stringify({ provider, kind, prompt, ...options }),
++  });
++  const { id } = (await response.json()) as { id: string };
++  queueAaoLibraryImport(id, kind, provider, owner);
++  return id;
++}
++
++export async function getArtCraftMediaUrl(token: string) {
++  const media = await new MediaFilesApi().GetMediaFileByToken({
++    mediaFileToken: token,
++  });
++  return media.data?.media_links?.cdn_url;
++}
++
++async function importJob(id: string, entry: LibraryImport, job: AaoMediaJob) {
++  const api = new MediaUploadApi();
++  for (const [index, name] of job.files.entries()) {
++    const file = (entry.files[index] ??= { uuid: crypto.randomUUID() });
++    if (file.token) continue;
++    // Store the upload key before starting. Retrying an interrupted request uses the same key.
++    saveImport(id, entry);
++    const result = await requestAaoMedia(`/jobs/${id}/files/${index}`);
++    const blob = await result.blob();
++    if ((await getArtCraftLibraryOwner()) !== entry.owner) {
++      throw new Error(
++        "Sign in to the ArtCraft account that started the job to finish importing.",
++      );
++    }
++    const uploaded = await api.ImportGeneratedMedia({
++      kind: entry.kind,
++      uuid: file.uuid,
++      fileName: name,
++      blob,
++    });
++    if (!uploaded.success || !uploaded.data) {
++      if (
++        uploaded.success === false &&
++        !/idempotency token/i.test(uploaded.errorMessage ?? "")
++      ) {
++        // ArtCraft explicitly rejected this upload. The next attempt needs a fresh key.
++        delete entry.files[index];
++      }
++      throw new Error(
++        uploaded.errorMessage || `Could not import ${name} to My Library.`,
++      );
++    }
++    file.token = uploaded.data;
++    delete entry.uploadRetry;
++    saveImport(id, entry);
++    window.dispatchEvent(new Event(AAO_LIBRARY_UPDATED));
++  }
++  const { preferences } = await GetAppPreferences();
++  if (preferences.auto_download) {
++    for (const [index, name] of job.files.entries()) {
++      const file = entry.files[index];
++      if (file.downloaded) continue;
++      if (!file.token || (await getArtCraftLibraryOwner()) !== entry.owner) {
++        throw new Error(
++          "Sign in to the ArtCraft account that started the job to finish downloading.",
++        );
++      }
++      const url = await getArtCraftMediaUrl(file.token);
++      if (!url)
++        throw new Error(
++          `ArtCraft hasn't returned a download URL for ${name} yet.`,
++        );
++      const result = await DownloadUrl(url, {
++        model: entry.provider,
++        batch_index: job.files.length > 1 ? index + 1 : undefined,
++      });
++      if (result.status !== CommandSuccessStatus.Success)
++        throw new Error(`Could not auto-download ${name}.`);
++      file.downloaded = true;
++      saveImport(id, entry);
++    }
++  }
++  entry.done = true;
++  saveImport(id, entry);
++}
++
++export function watchAaoLibraryImports() {
++  let stopped = false;
++  const nextAccountCheck = new Map<string, number>();
++  const tick = async () => {
++    if (working || stopped) return;
++    working = true;
++    try {
++      for (const [id, entry] of Object.entries(readImports())) {
++        const waitingForAccount =
++          !entry.owner &&
++          (entry.waitingForAccount || entry.error === LEGACY_SIGN_IN_REQUIRED);
++        if (stopped || entry.done || (entry.error && !waitingForAccount))
++          continue;
++        if (entry.uploadRetry && Date.now() < entry.uploadRetry.nextAt)
++          continue;
++        if (waitingForAccount && Date.now() < (nextAccountCheck.get(id) ?? 0))
++          continue;
++        let job: AaoMediaJob;
++        try {
++          job = await (await requestAaoMedia(`/jobs/${id}`)).json();
++        } catch (error) {
++          if (error instanceof MediaHttpError && error.status === 404) {
++            saveImport(id, {
++              ...entry,
++              waitingForAccount: undefined,
++              error: error.message,
++            });
++            nextAccountCheck.delete(id);
++          }
++          continue;
++        }
++        if (job.state === "pending") continue;
++        try {
++          if (job.state === "failed")
++            throw new Error(job.error || "Generation failed.");
++          if (!entry.owner) {
++            try {
++              const owner = await getArtCraftLibraryOwner();
++              if (!owner) throw new Error(SIGN_IN_REQUIRED);
++              entry.owner = owner;
++              delete entry.error;
++              delete entry.waitingForAccount;
++              nextAccountCheck.delete(id);
++              saveImport(id, entry);
++            } catch (error) {
++              nextAccountCheck.set(id, Date.now() + 15000);
++              saveImport(id, {
++                ...entry,
++                waitingForAccount: true,
++                error: error instanceof Error ? error.message : String(error),
++              });
++              continue;
++            }
++          }
++          await importJob(id, entry, job);
++        } catch (error) {
++          if (error instanceof HttpApiError && error.status === 404) {
++            const attempts = entry.uploadRetry?.attempts ?? 0;
++            const delay = UPLOAD_RETRY_DELAYS_MS[attempts];
++            if (delay !== undefined) {
++              entry.uploadRetry = {
++                attempts: attempts + 1,
++                nextAt: Date.now() + delay,
++              };
++              saveImport(id, entry);
++              continue;
++            }
++            error = new Error(
++              "ArtCraft’s upload endpoint returned HTTP 404 after retrying. You can download the result or retry the library import.",
++            );
++          }
++          saveImport(id, {
++            ...entry,
++            uploadRetry: undefined,
++            waitingForAccount: undefined,
++            error: error instanceof Error ? error.message : String(error),
++          });
++        }
++      }
++    } finally {
++      working = false;
++    }
++  };
++  void tick();
++  const interval = setInterval(tick, 1500);
++  return () => {
++    stopped = true;
++    clearInterval(interval);
++  };
++}
+diff --git a/frontend/apps/artcraft/app/src/components/signaled/TopBar/TopBar.tsx b/frontend/apps/artcraft/app/src/components/signaled/TopBar/TopBar.tsx
+index 27fa7b5ac4..53a22da8fb 100644
+--- a/frontend/apps/artcraft/app/src/components/signaled/TopBar/TopBar.tsx
++++ b/frontend/apps/artcraft/app/src/components/signaled/TopBar/TopBar.tsx
+@@ -58,6 +58,7 @@ import { TabId, useTabStore } from "~/pages/Stores/TabState";
+ import { AUTH_STATUS } from "~/enums";
+ import { authentication } from "~/signals";
+ import { setLogoutStates } from "~/signals/authentication/utilities";
++import { useAaoImportedMediaTokens } from "~/components/generation-feed/aaoLibraryImports";
+ import type { BaseSelectorImage } from "@storyteller/ui-pagedraw";
+ import {
+   galleryModalDeleteMedia,
+@@ -181,6 +182,7 @@ const CreditsCoinWithStatus = ({
+
+ export const TopBar = ({ pageName }: Props) => {
+   useSignals();
++  const generatedUploadTokens = useAaoImportedMediaTokens();
+
+   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+   const [settingsSection, setSettingsSection] =
+@@ -705,6 +707,7 @@ export const TopBar = ({ pageName }: Props) => {
+
+       <GalleryModal
+         mode="view"
++        generatedUploadTokens={generatedUploadTokens}
+         onDownloadClicked={downloadFile}
+         onEditClicked={handleEditFromGallery}
+         onTurnIntoVideoClicked={handleTurnIntoVideoFromGallery}
+diff --git a/frontend/apps/artcraft/app/src/index.tsx b/frontend/apps/artcraft/app/src/index.tsx
+index 8564d92080..846d0826f4 100644
+--- a/frontend/apps/artcraft/app/src/index.tsx
++++ b/frontend/apps/artcraft/app/src/index.tsx
+@@ -13,6 +13,7 @@ import { SyncStorytellerApiConfig } from "./api/SyncStorytellerApiConfig";
+ import { posthog } from "posthog-js";
+ import { SoundManager } from "@storyteller/soundboard";
+ import { useModelsStore } from "@storyteller/tauri-api";
++import { watchAaoLibraryImports } from "~/components/generation-feed/aaoLibraryImports";
+
+ // TODO(bt,2025-04-19): Make these configurable
+ const ENV = {
+@@ -86,6 +87,8 @@ const GlobalSettingsManager = ({ env }: { env: Record<string, string> }) => {
+     SoundManager.install();
+   }, []);
+
++  useEffect(watchAaoLibraryImports, []);
++
+   // Reconcile the model dropdowns against the backend omni listing once on boot.
+   // The store is already seeded with the static overlay, so a failure here is a
+   // no-op (the UI keeps the overlay models).
+diff --git a/frontend/apps/artcraft/app/src/pages/PageAudio/CreateAudio.tsx b/frontend/apps/artcraft/app/src/pages/PageAudio/CreateAudio.tsx
+index 3987fa90f1..02157bb66d 100644
+--- a/frontend/apps/artcraft/app/src/pages/PageAudio/CreateAudio.tsx
++++ b/frontend/apps/artcraft/app/src/pages/PageAudio/CreateAudio.tsx
+@@ -1,7 +1,7 @@
+ import { GenerateAudio, EstimateAudioCost } from "@storyteller/tauri-api";
+ import type { OmniGenAudioRequest } from "@storyteller/api";
+ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+-import { PromptBoxAudio, usePromptAudioStore } from "@storyteller/ui-promptbox";
++import { AudioModelSelector, PromptBoxAudio, usePromptAudioStore } from "@storyteller/ui-promptbox";
+ import {
+   UploadAudioMedia,
+   UploadImageMedia,
+@@ -25,6 +25,8 @@ import {
+ import { useDesktopUsername } from "~/components/generation-feed/useDesktopUsername";
+ import { DesktopCreatePageShell } from "~/components/generation-feed/DesktopCreatePageShell";
+ import { DesktopGenerationGallery } from "~/components/generation-feed/DesktopGenerationGallery";
++import { AaoGeneration, useAaoGeneration } from "~/components/generation-feed/AaoGeneration";
++import { useAaoImportedMediaTokens } from "~/components/generation-feed/aaoLibraryImports";
+
+ const generateAudio = async (request: OmniGenAudioRequest) => (await GenerateAudio(request)).payload;
+ const estimateAudio = async (request: OmniGenAudioRequest) => (await EstimateAudioCost(request)).payload;
+@@ -39,6 +41,7 @@ const CreateAudio = () => {
+   // Cost estimate inputs come from the shared audio prompt store (the
+   // promptbox owns the settings; the page only observes them).
+   const selectedModelId = usePromptAudioStore((s) => s.selectedModelId);
++  const setSelectedModelId = usePromptAudioStore((s) => s.setSelectedModelId);
+   const referenceAudios = usePromptAudioStore((s) => s.referenceAudios);
+   const referenceImages = usePromptAudioStore((s) => s.referenceImages);
+   const selectedModel = useMemo(
+@@ -48,6 +51,19 @@ const CreateAudio = () => {
+       models[0],
+     [models, selectedModelId],
+   );
++  const aao = useAaoGeneration("audio");
++  const modelSelector = (
++    <AudioModelSelector
++      models={models}
++      selectedModel={selectedModel}
++      additionalLabel={aao.provider?.label}
++      additionalItems={aao.items}
++      onSelect={(item) => {
++        aao.onSelect(item);
++        if (item.action && !item.action.startsWith("aao:")) setSelectedModelId(item.action);
++      }}
++    />
++  );
+   const audioCredits = useAudioCostEstimate({
+     model: selectedModel?.model ?? "",
+     audioReferenceCount: referenceAudios.length,
+@@ -72,10 +88,12 @@ const CreateAudio = () => {
+   // library provide the same generation feed used by the webapp.
+   const username = useDesktopUsername();
+   const feed = useGenerationJobs({ mediaType: "audio", enabled: !!username });
++  const generatedAudioTokens = useAaoImportedMediaTokens("audio");
+   const gallery = useGalleryData({
+     username,
+     filterMediaClasses: AUDIO_FILTER,
+     excludeUploads: true,
++    includedUploadTokens: generatedAudioTokens,
+   });
+
+   // Content only — while the gallery is still loading the shell keeps the
+@@ -168,9 +186,12 @@ const CreateAudio = () => {
+       promptBox={
+         <div className="fixed bottom-4 left-1/2 z-20 w-full max-w-5xl -translate-x-1/2 px-2 sm:px-4">
+           <div ref={promptContentRef}>
+-            <PromptBoxAudio
++            {aao.provider ? (
++              <AaoGeneration key={aao.provider.id} provider={aao.provider} selector={modelSelector} online={aao.online} />
++            ) : <PromptBoxAudio
+               generateAudio={generateAudio}
+               models={models}
++              modelSelector={modelSelector}
+               uploadAudio={UploadAudioMedia}
+               uploadImage={UploadImageMedia}
+               credits={audioCredits}
+@@ -180,7 +201,7 @@ const CreateAudio = () => {
+                 window.dispatchEvent(new Event("task-queue-update"));
+                 window.dispatchEvent(new Event("credits-change"));
+               }}
+-            />
++            />}
+           </div>
+         </div>
+       }
+diff --git a/frontend/apps/artcraft/app/src/pages/PageDraw/BaseImageSelector.tsx b/frontend/apps/artcraft/app/src/pages/PageDraw/BaseImageSelector.tsx
+index 17c2a81c92..e4925416a6 100644
+--- a/frontend/apps/artcraft/app/src/pages/PageDraw/BaseImageSelector.tsx
++++ b/frontend/apps/artcraft/app/src/pages/PageDraw/BaseImageSelector.tsx
+@@ -10,6 +10,8 @@ import { HelpMenuButton } from "@storyteller/ui-help-menu";
+ import { CostCalculatorButton } from "@storyteller/ui-pricing-modal";
+ import { ModelPage } from "@storyteller/ui-model-selector";
+ import { UploadEntryCard } from "~/components/media/UploadEntryCard";
++import { useAaoImportedMediaTokens } from "~/components/generation-feed/aaoLibraryImports";
++import { galleryModalSubscribeToMediaEvents } from "~/Helpers/galleryModalTauriBindings";
+ import { BlankCanvasModal, type BaseSelectorImage } from "@storyteller/ui-pagedraw";
+ import { v4 as uuidv4 } from "uuid";
+
+@@ -24,6 +26,7 @@ export const BaseImageSelector = ({
+   onImageSelect,
+   showLoading = false,
+ }: BaseImageSelectorProps) => {
++  const generatedUploadTokens = useAaoImportedMediaTokens();
+   const [isGalleryModalOpen, setIsGalleryModalOpen] = useState(false);
+   const [selectedGalleryImages, setSelectedGalleryImages] = useState<string[]>([]);
+   const [isLoading, setIsLoading] = useState(false);
+@@ -159,6 +162,8 @@ export const BaseImageSelector = ({
+       </div>
+       <GalleryModal
+         isOpen={!!isGalleryModalOpen}
++        generatedUploadTokens={generatedUploadTokens}
++        subscribeToMediaEvents={galleryModalSubscribeToMediaEvents}
+         onClose={handleGalleryClose}
+         mode="select"
+         selectedItemIds={selectedGalleryImages}
+diff --git a/frontend/apps/artcraft/app/src/pages/PageDraw/PageDraw.tsx b/frontend/apps/artcraft/app/src/pages/PageDraw/PageDraw.tsx
+index 431c2c6270..44b5e479e9 100644
+--- a/frontend/apps/artcraft/app/src/pages/PageDraw/PageDraw.tsx
++++ b/frontend/apps/artcraft/app/src/pages/PageDraw/PageDraw.tsx
+@@ -1,4 +1,4 @@
+-import { useMemo } from "react";
++import { useMemo, useState } from "react";
+ import {
+   PageDraw as PageDrawLib,
+   useSceneStore,
+@@ -16,6 +16,8 @@ import { CommonAspectRatio, CommonResolution } from "@storyteller/model-list";
+ import { useTextToImageGenerationCompleteEvent } from "@storyteller/tauri-events";
+ import { UploadImageMedia } from "@storyteller/api";
+ import { BaseImageSelector } from "./BaseImageSelector";
++import { AaoAspectRatio, useAaoGeneration } from "~/components/generation-feed/AaoGeneration";
++import { enqueueAaoMedia, requestAaoMedia, type AaoImageRatio, type AaoMediaJob } from "~/components/generation-feed/aaoLibraryImports";
+
+ // ─── Aspect ratio / resolution mappers ────────────────────────────────────────
+ const mapAspectRatio = (ratio?: string): CommonAspectRatio | undefined => {
+@@ -155,7 +157,41 @@ const useTauriAdapter = (): PageDrawAdapter => {
+ const PageDraw = () => {
+   useTauriEventBridges();
+   const adapter = useTauriAdapter();
+-  return <PageDrawLib adapter={adapter} />;
++  const aao = useAaoGeneration("image");
++  const [ratio, setRatio] = useState<AaoImageRatio>();
++  const provider = aao.provider;
++  const generate = provider && (async (prompt: string, canvas: File) => {
++    if (canvas.size > 8 * 1024 * 1024) throw new Error("The canvas exceeds the 8 MiB AAO image reference limit.");
++    const reference = await new Promise<string>((resolve, reject) => {
++      const reader = new FileReader();
++      reader.onload = () => resolve(String(reader.result));
++      reader.onerror = () => reject(reader.error);
++      reader.readAsDataURL(canvas);
++    });
++    const id = await enqueueAaoMedia(provider.id, "image", prompt, { aspect_ratio: ratio, references: [reference] });
++    const deadline = Date.now() + 20 * 60 * 1000;
++    while (Date.now() < deadline) {
++      const job: AaoMediaJob = await (await requestAaoMedia(`/jobs/${id}`)).json();
++      if (job.state === "failed") throw new Error(job.error || "AAO image generation failed.");
++      if (job.state === "succeeded") {
++        const files = await Promise.all(job.files.map(async (_, index) =>
++          (await requestAaoMedia(`/jobs/${id}/files/${index}`)).blob()));
++        return files.map((blob, index) => {
++          const url = URL.createObjectURL(blob);
++          return { url, fullImageUrl: url, mediaToken: `aao:${id}:${index}` };
++        });
++      }
++      await new Promise(resolve => setTimeout(resolve, 1500));
++    }
++    throw new Error("Timed out waiting for the AAO image.");
++  });
++  return <PageDrawLib adapter={adapter} alternateGeneration={{
++    items: aao.items,
++    onSelect: aao.onSelect,
++    generate,
++    disabled: Boolean(provider && !aao.online),
++    aspectRatioControl: provider && <AaoAspectRatio ratio={ratio} onChange={setRatio} />,
++  }} />;
+ };
+
+ export default PageDraw;
+diff --git a/frontend/apps/artcraft/app/src/pages/PageImage/TextToImage.tsx b/frontend/apps/artcraft/app/src/pages/PageImage/TextToImage.tsx
+index 4f7203a074..321495a098 100644
+--- a/frontend/apps/artcraft/app/src/pages/PageImage/TextToImage.tsx
++++ b/frontend/apps/artcraft/app/src/pages/PageImage/TextToImage.tsx
+@@ -33,6 +33,7 @@ import { useDesktopGenerationFeed } from "~/components/generation-feed/useDeskto
+ import { useDesktopUsername } from "~/components/generation-feed/useDesktopUsername";
+ import { DesktopCreatePageShell } from "~/components/generation-feed/DesktopCreatePageShell";
+ import { DesktopGenerationGallery } from "~/components/generation-feed/DesktopGenerationGallery";
++import { AaoGeneration, useAaoGeneration } from "~/components/generation-feed/AaoGeneration";
+
+ const PAGE_ID: ModelPage = ModelPage.TextToImage;
+
+@@ -54,6 +55,11 @@ const TextToImage = ({ imageMediaId, imageUrl }: TextToImageProps) => {
+
+   const selectedProvider: GenerationProvider | undefined =
+     useSelectedProviderForModel(PAGE_ID, selectedImageModel?.id);
++  const aao = useAaoGeneration("image");
++  const modelSelector = (
++    <ClassyModelSelector variant="embedded" items={textToImageModelList} page={PAGE_ID}
++      additionalItems={aao.items} onAdditionalItemSelect={aao.onSelect} />
++  );
+
+   const imageCredits = useCostBreakdownModalStore(
+     (s) => s.estimatedCreditsByPage[PAGE_ID],
+@@ -180,7 +186,9 @@ const TextToImage = ({ imageMediaId, imageUrl }: TextToImageProps) => {
+       promptBox={
+         <div className="fixed bottom-4 left-1/2 z-20 w-full max-w-5xl -translate-x-1/2 px-2 sm:px-4">
+           <div ref={promptContentRef}>
+-            <PromptBoxImage
++            {aao.provider ? (
++              <AaoGeneration key={aao.provider.id} provider={aao.provider} selector={modelSelector} online={aao.online} />
++            ) : <PromptBoxImage
+               useJobContext={() => {
+                 return jobContext;
+               }}
+@@ -190,13 +198,7 @@ const TextToImage = ({ imageMediaId, imageUrl }: TextToImageProps) => {
+               imageMediaId={imageMediaId}
+               url={imageUrl ?? undefined}
+               credits={imageCredits}
+-              modelSelector={
+-                <ClassyModelSelector
+-                  variant="embedded"
+-                  items={textToImageModelList}
+-                  page={PAGE_ID}
+-                />
+-              }
++              modelSelector={modelSelector}
+               onEnqueuePressed={async (prompt, count, subscriberId) => {
+                 const modelLabel = selectedImageModel?.fullName ?? "";
+                 startBatch(
+@@ -210,13 +212,13 @@ const TextToImage = ({ imageMediaId, imageUrl }: TextToImageProps) => {
+                 // pending row appears immediately.
+                 window.dispatchEvent(new Event("task-queue-update"));
+               }}
+-            />
++            />}
+           </div>
+         </div>
+       }
+       bottomRight={
+         <>
+-          <CostCalculatorButton modelPage={PAGE_ID} />
++          {!aao.provider && <CostCalculatorButton modelPage={PAGE_ID} />}
+           <HelpMenuButton />
+         </>
+       }
+diff --git a/frontend/apps/artcraft/app/src/pages/PageVideo/ImageToVideo.tsx b/frontend/apps/artcraft/app/src/pages/PageVideo/ImageToVideo.tsx
+index 0429bc16c3..496f888a13 100644
+--- a/frontend/apps/artcraft/app/src/pages/PageVideo/ImageToVideo.tsx
++++ b/frontend/apps/artcraft/app/src/pages/PageVideo/ImageToVideo.tsx
+@@ -45,6 +45,7 @@ import { useDesktopGenerationFeed } from "~/components/generation-feed/useDeskto
+ import { useDesktopUsername } from "~/components/generation-feed/useDesktopUsername";
+ import { DesktopCreatePageShell } from "~/components/generation-feed/DesktopCreatePageShell";
+ import { DesktopGenerationGallery } from "~/components/generation-feed/DesktopGenerationGallery";
++import { AaoGeneration, useAaoGeneration } from "~/components/generation-feed/AaoGeneration";
+
+ const PAGE_ID: ModelPage = ModelPage.ImageToVideo;
+
+@@ -67,6 +68,11 @@ const ImageToVideo = ({ imageMediaId, imageUrl }: ImageToVideoProps) => {
+
+   const selectedProvider: GenerationProvider | undefined =
+     useSelectedProviderForModel(PAGE_ID, selectedVideoModel?.id);
++  const aao = useAaoGeneration("video");
++  const modelSelector = (
++    <ClassyModelSelector variant="embedded" items={imageToVideoModelList} page={PAGE_ID}
++      additionalItems={aao.items} onAdditionalItemSelect={aao.onSelect} />
++  );
+
+   const videoCredits = useCostBreakdownModalStore(
+     (s) => s.estimatedCreditsByPage[PAGE_ID],
+@@ -207,7 +213,15 @@ const ImageToVideo = ({ imageMediaId, imageUrl }: ImageToVideoProps) => {
+       promptBox={
+         <div className="fixed bottom-4 left-1/2 z-20 w-full max-w-5xl -translate-x-1/2 px-2 sm:px-4">
+           <div ref={promptContentRef}>
+-            <PromptBoxErrorBoundary>
++            {aao.provider ? (
++              <AaoGeneration
++                key={`${aao.provider.id}:${imageMediaId ?? ""}`}
++                provider={aao.provider}
++                selector={modelSelector}
++                online={aao.online}
++                initialVideoReference={imageMediaId && imageUrl ? { id: imageMediaId, url: imageUrl } : undefined}
++              />
++            ) : <PromptBoxErrorBoundary>
+               <PromptBoxVideo
+                 useJobContext={() => jobContext}
+                 selectedModel={selectedVideoModel}
+@@ -218,13 +232,7 @@ const ImageToVideo = ({ imageMediaId, imageUrl }: ImageToVideoProps) => {
+                 uploadVideo={UploadVideoMedia}
+                 uploadAudio={UploadAudioMedia}
+                 credits={videoCredits}
+-                modelSelector={
+-                  <ClassyModelSelector
+-                    variant="embedded"
+-                    items={imageToVideoModelList}
+-                    page={PAGE_ID}
+-                  />
+-                }
++                modelSelector={modelSelector}
+                 onEnqueuePressed={async (prompt, subscriberIds) => {
+                   const modelLabel = selectedVideoModel?.fullName ?? "";
+                   for (const subscriberId of subscriberIds) {
+@@ -235,13 +243,13 @@ const ImageToVideo = ({ imageMediaId, imageUrl }: ImageToVideoProps) => {
+                   window.dispatchEvent(new Event("task-queue-update"));
+                 }}
+               />
+-            </PromptBoxErrorBoundary>
++            </PromptBoxErrorBoundary>}
+           </div>
+         </div>
+       }
+       bottomRight={
+         <>
+-          <CostCalculatorButton modelPage={PAGE_ID} />
++          {!aao.provider && <CostCalculatorButton modelPage={PAGE_ID} />}
+           <HelpMenuButton />
+         </>
+       }
+diff --git a/frontend/apps/artcraft/vite.config.ts b/frontend/apps/artcraft/vite.config.ts
+index 3dcdd756a3..afcbaddd86 100644
+--- a/frontend/apps/artcraft/vite.config.ts
++++ b/frontend/apps/artcraft/vite.config.ts
+@@ -70,6 +70,20 @@ export default defineConfig({
+     topLevelAwait(),
+   ],
+   server: {
++    proxy: {
++      "/aao-media/": {
++        target: "http://127.0.0.1:8771",
++        changeOrigin: true,
++        rewrite: (url) => url.replace(/^\/aao-media/, ""),
++        configure: (proxy) => {
++          proxy.on("proxyReq", (outgoing, incoming) => {
++            if (incoming.headers.origin === `http://${incoming.headers.host}`) {
++              outgoing.removeHeader("origin");
++            }
++          });
++        },
++      },
++    },
+     fs: {
+       allow: [workspaceRoot],
+     },
+diff --git a/frontend/libs/api/src/lib/ApiManager.ts b/frontend/libs/api/src/lib/ApiManager.ts
+index cbdd713cb5..28cb7d9220 100644
+--- a/frontend/libs/api/src/lib/ApiManager.ts
++++ b/frontend/libs/api/src/lib/ApiManager.ts
+@@ -166,7 +166,12 @@ export class ApiManager {
+       credentials: "include",
+       body: body,
+     });
+-    return response.json();
++    try {
++      return await response.json();
++    } catch (error) {
++      if (!response.ok) throw new HttpApiError(response.status);
++      throw error;
++    }
+   }
+
+   protected get<T>({
+diff --git a/frontend/libs/api/src/lib/MediaUploadApi.ts b/frontend/libs/api/src/lib/MediaUploadApi.ts
+index ecd8135087..818f765f90 100644
+--- a/frontend/libs/api/src/lib/MediaUploadApi.ts
++++ b/frontend/libs/api/src/lib/MediaUploadApi.ts
+@@ -191,6 +191,40 @@ export class MediaUploadApi extends ApiManager {
+     return this.Upload({ endpoint, blob, fileName, uuid, options });
+   }
+
++  public async ImportGeneratedMedia({
++    kind,
++    blob,
++    fileName,
++    uuid,
++  }: {
++    kind: "image" | "video" | "audio";
++    blob: Blob;
++    fileName: string;
++    uuid: string;
++  }): Promise<ApiResponse<string>> {
++    const path = kind === "video" ? "new_video" : kind;
++    const response = await this.postForm<{
++      success: boolean;
++      media_file_token?: string;
++      BadInput?: string;
++      error_message?: string;
++      message?: string;
++    }>({
++      endpoint: `${this.getApiSchemeAndHost()}/v1/media_files/upload/${path}`,
++      blob,
++      blobFileName: fileName,
++      uuid,
++      formRecord: kind === "audio"
++        ? { maybe_title: fileName }
++        : { is_intermediate_system_file: "false", maybe_title: fileName },
++    });
++    return {
++      success: response.success,
++      data: response.media_file_token,
++      errorMessage: response.BadInput || response.error_message || response.message,
++    };
++  }
++
+   public async UploadNewEngineAsset({
+     file,
+     fileName,
+diff --git a/frontend/libs/components/gallery-modal/src/lib/gallery-modal.tsx b/frontend/libs/components/gallery-modal/src/lib/gallery-modal.tsx
+index b17abae8fa..e68c2ff3f4 100644
+--- a/frontend/libs/components/gallery-modal/src/lib/gallery-modal.tsx
++++ b/frontend/libs/components/gallery-modal/src/lib/gallery-modal.tsx
+@@ -310,6 +310,8 @@ interface GalleryModalProps {
+   }) => void;
+   /** Hide the filter popover entirely. When unset, the filter button shows (optionally locked via forceFilter). */
+   hideFilter?: boolean;
++  /** Uploaded files that represent results from an external generator. */
++  generatedUploadTokens?: ReadonlySet<string>;
+   /** Delete a media file by id. Required in view mode to show any delete UI. */
+   onDeleteMedia?: (id: string) => Promise<unknown>;
+   /** Wire external event sources (generation-complete, media-deleted). Returns an unsubscribe fn. */
+@@ -595,6 +597,7 @@ export const GalleryModal = React.memo(
+     onMake3DWorldClicked,
+     onRecreateClicked,
+     hideFilter,
++    generatedUploadTokens,
+     onDeleteMedia,
+     subscribeToMediaEvents,
+   }: GalleryModalProps) => {
+@@ -2380,7 +2383,12 @@ export const GalleryModal = React.memo(
+     const filterItem = useCallback(
+       (item: GalleryItem) => {
+         if ((item as any).mediaType === "scene_json") return false;
+-        if (!showUploads && activeFilter !== "uploaded" && item.isUpload)
++        if (
++          !showUploads &&
++          activeFilter !== "uploaded" &&
++          item.isUpload &&
++          !generatedUploadTokens?.has(item.id)
++        )
+           return false;
+         if (activeFilter === "mesh") return item.mediaClass === "mesh";
+         if (activeFilter === "splat") return item.mediaClass === "splat";
+@@ -2392,7 +2400,7 @@ export const GalleryModal = React.memo(
+         }
+         return true;
+       },
+-      [activeFilter, showUploads],
++      [activeFilter, showUploads, generatedUploadTokens],
+     );
+
+     const flatFilteredItems = useMemo(() => {
+diff --git a/frontend/libs/components/generation-list/src/lib/useGalleryData.ts b/frontend/libs/components/generation-list/src/lib/useGalleryData.ts
+index ce0e2d6e60..f4f3c6a44b 100644
+--- a/frontend/libs/components/generation-list/src/lib/useGalleryData.ts
++++ b/frontend/libs/components/generation-list/src/lib/useGalleryData.ts
+@@ -53,14 +53,16 @@ export function useGalleryData(options: {
+   username: string | null;
+   filterMediaClasses: FilterMediaClasses[];
+   excludeUploads?: boolean;
++  includedUploadTokens?: ReadonlySet<string>;
+   // When set, dimensional (3D) items are kept only if their model belongs to
+   // this list. The library API filters by media class ("dimensional") but can't
+   // tell mesh objects from splat worlds apart, so the two 3D create pages pass
+   // their own model ids to keep each feed showing only its own product.
+   filterModelIds?: string[];
+ }) {
+-  const { username, filterMediaClasses, excludeUploads, filterModelIds } =
++  const { username, filterMediaClasses, excludeUploads, filterModelIds, includedUploadTokens } =
+     options;
++  const uploadTokensKey = JSON.stringify([...(includedUploadTokens ?? [])].sort());
+
+   const [items, setItems] = useState<GalleryItem[]>([]);
+   const [isLoading, setIsLoading] = useState(false);
+@@ -68,6 +70,7 @@ export function useGalleryData(options: {
+   const [pageIndex, setPageIndex] = useState(0);
+   const [hasMore, setHasMore] = useState(true);
+   const isLoadingRef = useRef(false);
++  const requestId = useRef(0);
+
+   const api = useMemo(() => new GalleryModalApi(), []);
+
+@@ -107,6 +110,7 @@ export function useGalleryData(options: {
+     async (reset = false) => {
+       if (!username) return;
+       if (isLoadingRef.current) return;
++      const id = ++requestId.current;
+       isLoadingRef.current = true;
+       setIsLoading(true);
+
+@@ -114,11 +118,12 @@ export function useGalleryData(options: {
+         const response = await api.listUserMediaFiles({
+           username,
+           filter_media_classes: filterMediaClasses,
+-          include_user_uploads: !excludeUploads,
++          include_user_uploads: !excludeUploads || Boolean(includedUploadTokens?.size),
+           page_index: reset ? 0 : pageIndex,
+           page_size: PAGE_SIZE,
+         });
+
++        if (id !== requestId.current) return;
+         if (response.success && response.data) {
+           const modelIdSet =
+             filterModelIds && filterModelIds.length
+@@ -129,7 +134,8 @@ export function useGalleryData(options: {
+             .filter(
+               (item: any) =>
+                 item.media_type !== FilterMediaType.SCENE_JSON &&
+-                !(excludeUploads && item.origin_category === "upload") &&
++                !(excludeUploads && item.origin_category === "upload" &&
++                  !includedUploadTokens?.has(item.token)) &&
+                 // Split 3D history by model so the object and world pages don't
+                 // show each other's generations. Non-3D items and items
+                 // without a known model are left untouched.
+@@ -154,12 +160,14 @@ export function useGalleryData(options: {
+           setHasMore(current + 1 < total);
+         }
+       } catch {
+-        // ignore
++        // Keep the current gallery if the request fails.
++      } finally {
++        if (id === requestId.current) {
++          setIsLoading(false);
++          setIsInitialLoading(false);
++          isLoadingRef.current = false;
++        }
+       }
+-
+-      setIsLoading(false);
+-      setIsInitialLoading(false);
+-      isLoadingRef.current = false;
+     },
+     [
+       username,
+@@ -169,17 +177,20 @@ export function useGalleryData(options: {
+       mapApiItem,
+       excludeUploads,
+       filterModelIds,
++      includedUploadTokens,
+     ],
+   );
+
+   // Initial load + filter change. When logged out (no username), clear the
+   // loading flag so the shell renders the empty state instead of a spinner.
+   useEffect(() => {
++    requestId.current++;
+     setItems([]);
+     setPageIndex(0);
+     isLoadingRef.current = false;
+     if (!username) {
+       setHasMore(false);
++      setIsLoading(false);
+       setIsInitialLoading(false);
+       return;
+     }
+@@ -187,7 +198,7 @@ export function useGalleryData(options: {
+     setIsInitialLoading(true);
+     loadItems(true);
+     // eslint-disable-next-line react-hooks/exhaustive-deps
+-  }, [username, JSON.stringify(filterMediaClasses), JSON.stringify(filterModelIds)]);
++  }, [username, JSON.stringify(filterMediaClasses), JSON.stringify(filterModelIds), uploadTokensKey]);
+
+   const loadMore = useCallback(() => {
+     if (hasMore && !isLoadingRef.current) {
+diff --git a/frontend/libs/components/model-selector/src/lib/classy-model-selector.tsx b/frontend/libs/components/model-selector/src/lib/classy-model-selector.tsx
+index 36b3e58951..50d21ca86d 100644
+--- a/frontend/libs/components/model-selector/src/lib/classy-model-selector.tsx
++++ b/frontend/libs/components/model-selector/src/lib/classy-model-selector.tsx
+@@ -24,6 +24,8 @@ import { defaultModelForPage } from "./defaultModelForPage";
+
+ interface ClassyModelSelectorProps {
+   items: Omit<PopoverItem, "selected">[];
++  additionalItems?: PopoverItem[];
++  onAdditionalItemSelect?: (item: PopoverItem) => void;
+   page: ModelPage;
+   mode?: "hoverSelect" | "default" | "toggle" | "button";
+   panelTitle?: string;
+@@ -131,6 +133,8 @@ function ProviderTooltipContent({
+
+ export function ClassyModelSelector({
+   items,
++  additionalItems,
++  onAdditionalItemSelect,
+   page,
+   providersByModel,
+   providerTooltipDelayMs = 300,
+@@ -188,10 +192,13 @@ export function ClassyModelSelector({
+   }, [items, providersByModel, page, selectedProvidersByModel]);
+
+   const handleModelSelect = (item: PopoverItem) => {
++    onAdditionalItemSelect?.(item);
++    if (!item.model) return;
+     console.log(`Model selector changed on page "${page}": `, item.model);
+-    setSelectedModel(page, item.model!);
++    setSelectedModel(page, item.model);
+   };
+
++  const additionalSelected = additionalItems?.some((item) => item.selected) ?? false;
+   const modelList = useMemo(
+     () =>
+       items.map((item) => {
+@@ -206,7 +213,7 @@ export function ClassyModelSelector({
+
+         return {
+           ...item,
+-          selected: isSameModel(item.model as Model | undefined, selectedModel),
++          selected: !additionalSelected && isSameModel(item.model, selectedModel),
+           hoverTooltip: hasMultipleProviders
+             ? (close: () => void) => (
+                 <ProviderTooltipContent
+@@ -251,6 +258,7 @@ export function ClassyModelSelector({
+       }),
+     [
+       items,
++      additionalSelected,
+       selectedModel,
+       selectedProvider,
+       selectedProvidersByModel,
+@@ -278,13 +286,13 @@ export function ClassyModelSelector({
+   if (variant === "embedded") {
+     // The trigger pill keeps the mono icon; the color variants are only for
+     // list rows.
+-    const selectedIcon = selectedModel
++    const selectedIcon = selectedModel && !additionalSelected
+       ? getCreatorIcon(selectedModel.creator)
+       : modelList.find((i) => i.selected)?.icon;
+     return (
+       <Tooltip content="Model" position="top" className="z-50" closeOnClick>
+         <PopoverMenu
+-          items={embeddedList}
++          items={[...embeddedList, ...(additionalItems ?? [])]}
+           onSelect={handleModelSelect}
+           mode="toggle"
+           richList
+diff --git a/frontend/libs/components/pagedraw/src/lib/PageDraw.tsx b/frontend/libs/components/pagedraw/src/lib/PageDraw.tsx
+index ff8d5c1d5c..3f1548a762 100644
+--- a/frontend/libs/components/pagedraw/src/lib/PageDraw.tsx
++++ b/frontend/libs/components/pagedraw/src/lib/PageDraw.tsx
+@@ -32,6 +32,7 @@ import {
+ import { HelpMenuButton } from "@storyteller/ui-help-menu";
+ import { CostCalculatorButton } from "@storyteller/ui-pricing-modal";
+ import { GenerationProvider } from "@storyteller/api-enums";
++import type { PopoverItem } from "@storyteller/ui-popover";
+ import { HistoryStack } from "./HistoryStack";
+ import { type BaseSelectorImage } from "./types";
+ import { EncodeImageBitmapToBase64 } from "./utilities/EncodeImageBitmapToBase64";
+@@ -265,6 +266,13 @@ const Edit3DScrubControls = memo(function Edit3DScrubControls({
+
+ interface PageDrawProps {
+   adapter: PageDrawAdapter;
++  alternateGeneration?: {
++    items: PopoverItem[];
++    onSelect: (item: PopoverItem) => void;
++    aspectRatioControl?: React.ReactNode;
++    disabled?: boolean;
++    generate?: (prompt: string, canvas: File) => Promise<BaseSelectorImage[]>;
++  };
+   /**
+    * Tailwind class for the full-viewport canvas backdrop (and the base-image
+    * selector surface). Defaults to the app's `bg-ui-background`; hosts that
+@@ -287,6 +295,7 @@ interface PageDrawProps {
+
+ const PageDraw = ({
+   adapter,
++  alternateGeneration,
+   backgroundClassName = "bg-ui-background",
+   fillParentHeight = false,
+   showBottomRightControls = true,
+@@ -431,7 +440,7 @@ const PageDraw = ({
+     useSelectedProviderForModel(PAGE_ID, selectedImageModel?.id);
+
+   const supportsMaskedInpainting =
+-    selectedImageModel?.usesInpaintingMask ?? false;
++    !alternateGeneration?.generate && (selectedImageModel?.usesInpaintingMask ?? false);
+
+   // Keyboard tool switching mirrors the SideToolbar buttons; size up/down
+   // adjusts whichever size the active tool draws with (brush, eraser, and the
+@@ -839,13 +848,6 @@ const PageDraw = ({
+           requestAnimationFrame(() => resolve()),
+         );
+
+-        const editedImageToken = baseImageInfo?.mediaToken;
+-
+-        if (!editedImageToken) {
+-          console.error("Base image is not available");
+-          return;
+-        }
+-
+         // Defense in depth: the visual gate (PromptEditor's isDisabled) is the
+         // primary user-facing guard, but a programmatic dispatch or future
+         // alternate trigger could still land here while the bitmap for the
+@@ -856,6 +858,20 @@ const PageDraw = ({
+           return;
+         }
+
++        if (alternateGeneration?.generate) {
++          const canvas = await getCompositeFile();
++          if (!canvas) throw new Error("Could not capture the editor canvas.");
++          const images = await alternateGeneration.generate(prompt, canvas);
++          addHistoryImageBundle({ images });
++          return;
++        }
++
++        const editedImageToken = baseImageInfo?.mediaToken;
++        if (!editedImageToken) {
++          console.error("Base image is not available");
++          return;
++        }
++
+         const subscriberId: string =
+           crypto?.randomUUID?.() ??
+           `inpaint-${Date.now()}-${uuidv4()}`;
+@@ -958,6 +974,9 @@ const PageDraw = ({
+         if (result?.status === "success") {
+           addPendingGeneration(subscriberId, generationCount);
+         }
++      } catch (error) {
++        if (!alternateGeneration?.generate) throw error;
++        toast.error(error instanceof Error ? error.message : String(error));
+       } finally {
+         generateInFlightRef.current = false;
+         setIsGenerating(false);
+@@ -969,9 +988,11 @@ const PageDraw = ({
+       getMaskArrayBuffer,
+       selectedImageModel,
+       adapter,
++      alternateGeneration,
+       baseImageBitmap,
+       baseImageInfo,
+       addPendingGeneration,
++      addHistoryImageBundle,
+       useSystemPrompt,
+     ],
+   );
+@@ -1275,20 +1296,25 @@ const PageDraw = ({
+           EncodeImageBitmapToBase64={EncodeImageBitmapToBase64}
+           onGenerateClick={handleGenerate}
+           onFitPressed={onFitPressed}
+-          isDisabled={!baseImageBitmap && !baseImageInfo?.isBlankCanvas}
++          isDisabled={(!baseImageBitmap && !baseImageInfo?.isBlankCanvas) || alternateGeneration?.disabled}
+           isEnqueueing={isGenerating}
+-          generationCount={generationCount}
+-          onGenerationCountChange={setGenerationCount}
+-          selectedImageModel={selectedImageModel}
+-          selectedProvider={selectedProvider}
++          generationCount={alternateGeneration?.generate ? 1 : generationCount}
++          onGenerationCountChange={alternateGeneration?.generate ? undefined : setGenerationCount}
++          selectedImageModel={alternateGeneration?.generate ? undefined : selectedImageModel}
++          selectedProvider={alternateGeneration?.generate ? undefined : selectedProvider}
+           uploadImage={adapter.uploadImage}
+           modelSelector={
+-            <ClassyModelSelector
+-              variant="embedded"
+-              items={canvas2dModelList}
+-              page={PAGE_ID}
+-              showProviderSelection={false}
+-            />
++            <>
++              <ClassyModelSelector
++                variant="embedded"
++                items={canvas2dModelList}
++                page={PAGE_ID}
++                showProviderSelection={false}
++                additionalItems={alternateGeneration?.items}
++                onAdditionalItemSelect={alternateGeneration?.onSelect}
++              />
++              {alternateGeneration?.aspectRatioControl}
++            </>
+           }
+         />
+       </div>
+@@ -1353,7 +1379,7 @@ const PageDraw = ({
+       </div>
+       {showBottomRightControls && (
+         <div className="absolute bottom-4 right-4 z-20 flex items-center gap-2">
+-          <CostCalculatorButton modelPage={PAGE_ID} />
++          {!alternateGeneration?.generate && <CostCalculatorButton modelPage={PAGE_ID} />}
+           <HelpMenuButton />
+         </div>
+       )}
+diff --git a/frontend/libs/components/pagedraw/src/lib/stores/SceneState.ts b/frontend/libs/components/pagedraw/src/lib/stores/SceneState.ts
+index b586152312..ed55221c94 100644
+--- a/frontend/libs/components/pagedraw/src/lib/stores/SceneState.ts
++++ b/frontend/libs/components/pagedraw/src/lib/stores/SceneState.ts
+@@ -1481,9 +1481,9 @@ export const useSceneStore = create<SceneState>((set, get, store) => ({
+       imgBitmap.onerror = null;
+     };
+     imgBitmap.crossOrigin = "anonymous";
+-    const isDataUrl =
+-      typeof image.url === "string" && image.url.startsWith("data:");
+-    imgBitmap.src = isDataUrl ? image.url : image.url + "?basecanvasimg";
++    const isLocalImage =
++      image.url.startsWith("data:") || image.url.startsWith("blob:");
++    imgBitmap.src = isLocalImage ? image.url : image.url + "?basecanvasimg";
+   },
+
+   clearLineNodes() {
+diff --git a/frontend/libs/components/promptbox/src/lib/PromptBox2D.tsx b/frontend/libs/components/promptbox/src/lib/PromptBox2D.tsx
+index 2641930eac..cf7e1f0221 100644
+--- a/frontend/libs/components/promptbox/src/lib/PromptBox2D.tsx
++++ b/frontend/libs/components/promptbox/src/lib/PromptBox2D.tsx
+@@ -509,13 +509,13 @@ export const PromptBox2D = ({
+                   </Button>
+                 </Tooltip>
+               )}
+-              <GenerationCountPicker
+-                currentModel={selectedImageModel}
+-                currentCount={generationCount}
+-                handleCountChange={(count) => {
+-                  onGenerationCountChange?.(count);
+-                }}
+-              />
++              {onGenerationCountChange && (
++                <GenerationCountPicker
++                  currentModel={selectedImageModel}
++                  currentCount={generationCount}
++                  handleCountChange={onGenerationCountChange}
++                />
++              )}
+               <PromptClearAllButton
+                 onClick={handleClearAll}
+                 disabled={!hasClearableContent}
+diff --git a/frontend/libs/components/promptbox/src/lib/PromptBoxAudio.tsx b/frontend/libs/components/promptbox/src/lib/PromptBoxAudio.tsx
+index 9b05e164c6..a8cab63030 100644
+--- a/frontend/libs/components/promptbox/src/lib/PromptBoxAudio.tsx
++++ b/frontend/libs/components/promptbox/src/lib/PromptBoxAudio.tsx
+@@ -76,6 +76,56 @@ interface PromptBoxAudioProps {
+   // request can create several Suno clips).
+   onEnqueuePressed?: (jobTokens: string[]) => void | Promise<void>;
+   credits?: number | null;
++  modelSelector?: ReactNode;
++}
++
++export function AudioModelSelector({
++  models,
++  selectedModel,
++  additionalItems = [],
++  additionalLabel,
++  onSelect,
++}: {
++  models: OmniGenAudioModelDetails[];
++  selectedModel?: OmniGenAudioModelDetails;
++  additionalItems?: PopoverItem[];
++  additionalLabel?: string;
++  onSelect: (item: PopoverItem) => void;
++}) {
++  const items: PopoverItem[] = models.map((model) => ({
++    label: model.full_name || model.model,
++    selected: !additionalLabel && model.model === selectedModel?.model,
++    description: getModelDescription(model.model, model.extra_info_short),
++    info: getModelInfo(model.model, model.extra_info) || undefined,
++    icon: (
++      <img
++        src={getCreatorIconPathForModelId(model.model)}
++        alt={`${model.model} logo`}
++        className="h-4 w-4 icon-auto-contrast"
++      />
++    ),
++    action: model.model,
++  }));
++  return (
++    <Tooltip content="Model" position="top" className="z-50" closeOnClick>
++      <PopoverMenu
++        items={[...items, ...additionalItems]}
++        onSelect={onSelect}
++        mode="toggle"
++        panelTitle="Select Model"
++        panelClassName="w-[360px]"
++        richList
++        triggerIcon={!additionalLabel && (
++          <img
++            src={getCreatorIconPathForModelId(selectedModel?.model ?? "")}
++            alt=""
++            className="h-4 w-4 icon-auto-contrast"
++          />
++        )}
++        triggerLabel={additionalLabel ?? selectedModel?.full_name ?? "Model"}
++      />
++    </Tooltip>
++  );
+ }
+
+ export const PromptBoxAudio = ({
+@@ -85,6 +135,7 @@ export const PromptBoxAudio = ({
+   uploadImage,
+   onEnqueuePressed,
+   credits,
++  modelSelector: suppliedModelSelector,
+ }: PromptBoxAudioProps) => {
+   const prompt = usePromptAudioStore((s) => s.prompt);
+   const setPrompt = usePromptAudioStore((s) => s.setPrompt);
+@@ -181,25 +232,6 @@ export const PromptBoxAudio = ({
+         sampleRateOptions?.[0] ??
+         null);
+
+-  const modelItems = useMemo(
+-    (): PopoverItem[] =>
+-      models.map((model) => ({
+-        label: model.full_name || model.model,
+-        selected: model.model === selectedModel?.model,
+-        description: getModelDescription(model.model, model.extra_info_short),
+-        info: getModelInfo(model.model, model.extra_info) || undefined,
+-        icon: (
+-          <img
+-            src={getCreatorIconPathForModelId(model.model)}
+-            alt={`${model.model} logo`}
+-            className="h-4 w-4 icon-auto-contrast"
+-          />
+-        ),
+-        action: model.model,
+-      })),
+-    [models, selectedModel?.model],
+-  );
+-
+   // Seed Audio can't combine audio and image references — adding one kind
+   // clears the other so the request is always valid.
+   const handleReferenceAudiosChange = (audios: typeof referenceAudios) => {
+@@ -425,27 +457,14 @@ export const PromptBoxAudio = ({
+     }
+   };
+
+-  const modelSelector: ReactNode = (
+-    <Tooltip content="Model" position="top" className="z-50" closeOnClick>
+-      <PopoverMenu
+-        items={modelItems}
+-        onSelect={(item) => {
+-          if (item.action) setSelectedModelId(item.action);
+-        }}
+-        mode="toggle"
+-        panelTitle="Select Model"
+-        panelClassName="w-[360px]"
+-        richList
+-        triggerIcon={
+-          <img
+-            src={getCreatorIconPathForModelId(selectedModel?.model ?? "")}
+-            alt=""
+-            className="h-4 w-4 icon-auto-contrast"
+-          />
+-        }
+-        triggerLabel={selectedModel?.full_name ?? "Model"}
+-      />
+-    </Tooltip>
++  const modelSelector = suppliedModelSelector ?? (
++    <AudioModelSelector
++      models={models}
++      selectedModel={selectedModel}
++      onSelect={(item) => {
++        if (item.action) setSelectedModelId(item.action);
++      }}
++    />
+   );
+
+   const toggleButtons: ReactNode = (

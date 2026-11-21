@@ -3,9 +3,12 @@
 import argparse
 import json
 import sys
+from pathlib import Path
+from uuid import uuid4
 
 from orchestrator import free_tokens, pricing
 from orchestrator.collect import COLLECTORS
+from orchestrator.media_references import IMAGE_FILES, VIDEO_REFERENCE_LIMITS, validate_image_reference
 from orchestrator.state import DATA_DIR, read_json
 
 
@@ -77,9 +80,94 @@ def cmd_prices(args):
         print(json.dumps(pricing.PriceBook().lookup(args.model), indent=1))
 
 
+def _video_reference_options(target, paths):
+    limit = VIDEO_REFERENCE_LIMITS[target]
+    if len(paths) > limit:
+        count = "one image reference" if limit == 1 else f"up to {limit} image references"
+        raise ValueError(f"web video {target} accepts {count}")
+    references = []
+    for name in paths:
+        path = Path(name).expanduser().absolute()
+        if not path.is_file():
+            raise ValueError(f"Reference image file not found: {path}")
+        try:
+            with path.open("rb") as image:
+                validate_image_reference(IMAGE_FILES.get(path.suffix.lower()), image.read(12), path.stat().st_size)
+        except ValueError as exc:
+            raise ValueError(f"{path.name}: {exc}") from exc
+        references.append(path)
+    return {"image": references[0]} if target == "grok" else {"references": references}
+
+
+def _web_media(args):
+    from orchestrator import (
+        web_chatgpt_image, web_flow, web_flow_music, web_gemini_image, web_gemini_video, web_grok, web_muse, web_muse_video,
+    )
+
+    target, kind = args.target, args.action
+    audio_drivers = {"flow-music": web_flow_music.generate, "grok": web_grok.generate_audio,
+                     "muse": web_muse.generate_audio}
+    allowed = {"image": ("chatgpt", "flow", "gemini", "grok", "muse"), "video": VIDEO_REFERENCE_LIMITS,
+               "audio": audio_drivers}
+    try:
+        if args.all or target not in allowed[kind]:
+            raise ValueError(f"web {kind} needs one target: {', '.join(allowed[kind])}")
+        if any((args.chat, args.file, args.repo, args.mode, args.expect)):
+            raise ValueError("Chat options apply to web ask. Use --reference to attach an image to web video")
+        prompt = (args.prompt or "").strip()
+        if not prompt:
+            raise ValueError(f"web {kind} requires --prompt")
+        timeout = 720 if args.timeout is None else args.timeout
+        if timeout <= 0:
+            raise ValueError("--timeout must be positive")
+        reference_options = {}
+        if args.reference:
+            if kind != "video":
+                raise ValueError("--reference applies to web video")
+            reference_options = _video_reference_options(target, args.reference)
+        directory = Path(args.out).expanduser().resolve() / f"{target}-{kind}-{uuid4().hex[:12]}"
+        directory.mkdir(parents=True, exist_ok=False)
+        if kind == "audio":
+            result = audio_drivers[target](prompt, directory, timeout_s=timeout)
+        elif target == "flow":
+            result = web_flow.generate(kind, prompt, directory, timeout_s=timeout, **reference_options)
+        elif target == "grok":
+            driver = web_grok.generate_image if kind == "image" else web_grok.generate_video
+            result = driver(prompt, download_dir=directory, timeout_s=timeout, **reference_options)
+        elif target == "muse" and kind == "image":
+            result = web_muse.generate_image(prompt, directory, timeout_s=timeout)
+        else:
+            if target == "gemini":
+                driver = web_gemini_image if kind == "image" else web_gemini_video
+            elif target == "chatgpt":
+                driver = web_chatgpt_image
+            else:
+                driver = web_muse_video
+            result = driver.generate(prompt, directory, timeout_s=timeout, **reference_options)
+    except (OSError, ValueError) as exc:
+        result = {"ok": False, "error": str(exc)}
+
+    files = result.get("files") or ([result["path"]] if result.get("path") else [])
+    result = {**result, "target": target, "kind": kind, "files": files}
+    if not _print(result, args.json):
+        for path in files:
+            print(path)
+        if not result.get("ok"):
+            print(result.get("reason") or result.get("error") or "Web generation failed", file=sys.stderr)
+            url = result.get("url") or result.get("conversation_url")
+            if url:
+                print(url, file=sys.stderr)
+    return 0 if result.get("ok") else 1
+
+
 def cmd_web(args):
     from orchestrator import drivers, web
 
+    if args.action in ("image", "video", "audio"):
+        return _web_media(args)
+    if args.reference:
+        print("--reference applies to web video", file=sys.stderr)
+        return 1
     if args.action in ("sessions", "read"):
         from orchestrator import web_autoclaw
 
@@ -106,6 +194,9 @@ def cmd_web(args):
                 print(f"\n{message['role']}: {message['text']}")
         return 0 if result.get("ok") else 1
     targets = list(web.TARGETS) if args.all or not args.target else [args.target]
+    if any(target not in web.TARGETS for target in targets):
+        print(f"Unknown web target: {args.target}", file=sys.stderr)
+        return 1
     if args.action == "close":  # browsers stay open between commands (AAO_WEB_KEEP_OPEN); close them here
         names = {web.login_name(t) for t in targets if web.is_open(t)}
         for name in sorted(names):
@@ -123,10 +214,11 @@ def cmd_web(args):
         elif target == "autoclaw" and args.prompt is None:
             result = {"ok": False, "reason": "AutoClaw requires an explicit --prompt and --chat"}
         else:
-            prompt, expect = (args.prompt, None) if target == "autoclaw" else drivers.check_prompt()
+            prompt, expect = drivers.check_prompt() if args.prompt is None else (args.prompt, None)
             try:
-                result = web.ask(target, args.prompt or prompt, args.expect or expect, chat=args.chat,
-                                 files=args.file, repo=args.repo, mode=args.mode, timeout_s=args.timeout)
+                result = web.ask(target, prompt, args.expect or expect, chat=args.chat,
+                                 files=args.file, repo=args.repo, mode=args.mode,
+                                 timeout_s=120 if args.timeout is None else args.timeout)
             except (ValueError, FileNotFoundError) as exc:
                 result = {"ok": False, "error": str(exc)}
         good = result.get("ok", result.get("loggedIn"))
@@ -138,8 +230,10 @@ def cmd_web(args):
         print(f"  {target:16} {'OK ' if good else 'NO '} {detail}")
         if result.get("taskStatus"):
             print(f"  {'':16} task: {result['taskStatus']}")
+        if result.get("thinking"):
+            print(result["thinking"], file=sys.stderr)
         if result.get("reply"):
-            reply = result["reply"] if target == "autoclaw" else result["reply"][:500]
+            reply = result["reply"] if target in {"grok", "autoclaw"} else result["reply"][:500]
             print(f"  {'':16} reply: {reply}")
     return 1 if failed else 0
 
@@ -398,14 +492,102 @@ def cmd_code(args):
     return 0 if result.get("ok") else 1
 
 
+def cmd_grok(args):
+    from orchestrator import web, web_grok
+
+    try:
+        if args.op == "chat":
+            result = web_grok.chat(args.prompt, chat_ref=args.chat, expect=args.expect, timeout_s=args.timeout)
+        elif args.op == "image":
+            result = web_grok.generate_image(args.prompt, quality=args.quality, aspect_ratio=args.aspect,
+                                             count=args.count, download_dir=args.out, timeout_s=args.timeout)
+        elif args.op == "video":
+            result = web_grok.generate_video(args.prompt, resolution=args.res, duration=args.duration,
+                                             aspect_ratio=args.aspect, image=args.image,
+                                             download_dir=args.out, timeout_s=args.timeout)
+        elif args.op == "attach":
+            result = web_grok.attach(args.config)
+        elif args.op == "install-browser":
+            ok, out, error = web._run(["playwright-cli", "install-browser", "chromium"], timeout=600)
+            result = {"ok": ok, "output": out, "error": error}
+        else:
+            from orchestrator import web_grok_api
+
+            if args.op == "mcp":
+                web_grok_api.mcp()
+            else:
+                web_grok_api.serve(args.port)
+            return 0
+    except ModuleNotFoundError as exc:
+        if exc.name not in {"mcp", "fastapi", "pydantic", "uvicorn"}:
+            raise
+        result = {"ok": False, "error": "install the Grok server dependencies with uv sync --extra grok-api"}
+    except (OSError, ValueError) as exc:
+        result = {"ok": False, "error": str(exc)}
+
+    if not _print(result, args.json):
+        if result.get("thinking"):
+            print(result["thinking"], file=sys.stderr)
+        if result.get("response"):
+            print(result["response"])
+        for path in result.get("files", []):
+            print(path)
+        if result.get("output"):
+            print(result["output"].rstrip())
+        if not result.get("ok"):
+            print(result.get("reason") or result.get("error") or "Grok operation failed", file=sys.stderr)
+            for error in result.get("errors", []):
+                print(error, file=sys.stderr)
+        elif args.op == "attach":
+            print("Attached the Grok session to the configured CDP browser")
+    return 0 if result.get("ok") else 1
+
+
+def _grok_parser(sub):
+    from typing import get_args
+
+    from orchestrator import web_grok
+
+    p = sub.add_parser("grok", help="Grok chat, Imagine generation, and local integrations")
+    p.add_argument("--json", action="store_true", help="return structured results for one operation")
+    p.set_defaults(func=cmd_grok)
+    ops = p.add_subparsers(dest="op", required=True)
+    chat = ops.add_parser("chat", help="send a text prompt and print the full reply")
+    chat.add_argument("prompt")
+    chat.add_argument("--chat", help="continue an existing chat by ID, URL, or title")
+    chat.add_argument("--expect", help="require a regex match in the reply")
+    chat.add_argument("--timeout", type=float, default=120)
+    image = ops.add_parser("image", help="generate and download Grok Imagine images")
+    image.add_argument("--quality", choices=get_args(web_grok.Quality))
+    image.add_argument("--count", choices=get_args(web_grok.Count))
+    video = ops.add_parser("video", help="generate and download a Grok Imagine video")
+    video.add_argument("--res", choices=get_args(web_grok.Resolution), default="480p")
+    video.add_argument("--duration", choices=get_args(web_grok.Duration), default="6s")
+    video.add_argument("--image", help="local reference image to animate")
+    for media, timeout in ((image, 300), (video, 600)):
+        media.add_argument("prompt")
+        media.add_argument("--aspect", choices=get_args(web_grok.Aspect))
+        media.add_argument("-o", "--out", default=web_grok.DEFAULT_OUT, help="download directory (default: downloads)")
+        media.add_argument("--timeout", type=float, default=timeout, help="seconds to wait for generation")
+    attach = ops.add_parser("attach", help="use an existing browser or Browserless endpoint over CDP")
+    attach.add_argument("--config", required=True, help="Playwright config file containing browser.cdpEndpoint")
+    ops.add_parser("install-browser", help="install Playwright Chromium for optional local use")
+    serve = ops.add_parser("serve", help="serve Grok operations over loopback HTTP (grok-api extra)")
+    serve.add_argument("--port", type=int, default=8000)
+    ops.add_parser("mcp", help="serve Grok operations over stdio MCP (grok-api extra)")
+
+
 def cmd_flow(args):
     from orchestrator import web_flow
 
     kw = {"timeout_s": args.timeout}
     if args.op == "download":
-        result = web_flow.download(args.project, args.media, to=args.to, quality=args.quality)
+        result = web_flow.download(args.project, args.media, to=args.to, quality=args.quality, **kw)
     elif args.op == "upload":
         result = web_flow.upload(args.project, args.files, timeout_s=args.timeout)
+    elif args.op == "new-character":
+        result = web_flow.create_character(args.project, args.name, prompt=args.prompt, image=args.image,
+                                           info=args.info, voice=args.voice, **kw)
     elif args.op == "delete":
         if not args.yes:
             print("  NO deleting a project is permanent (its clips, ingredients and prompts); add --yes")
@@ -426,6 +608,8 @@ def cmd_flow(args):
         print(f"  NO {result.get('reason') or result.get('error')}")
         for c in result.get("choices") or []:
             print(f"      {c}")
+        if args.op == "new-character" and result.get("url"):
+            print(f"      Flow page: {result['url']}")
     for p in result.get("projects") or []:
         print(f"  {p['title'][:40]:40} {p['id']}")
     if result.get("title") is not None and result.get("url"):
@@ -436,6 +620,9 @@ def cmd_flow(args):
         print(f"  saved {result['path']}  ({result['quality']})")
     if result.get("uploaded"):
         print(f"  uploaded {result['uploaded']} file(s); newest media are listed first")
+    if result.get("character"):
+        character = result["character"]
+        print(f"  character {character['name']}  {character['url']}")
     if result.get("deleted"):
         print(f"  deleted project {result['deleted']}")
     if args.op == "options" and result.get("ok"):
@@ -515,6 +702,15 @@ def cmd_projects(args):
     return 1
 
 
+def cmd_media_serve(_args):
+    try:
+        from orchestrator.media import serve
+    except ModuleNotFoundError as exc:
+        print(f"AAO media needs the optional HTTP dependencies: uv sync --extra grok-api ({exc})", file=sys.stderr)
+        return 1
+    return serve()
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="aao", description="any-agent-orchestrator tools")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -538,20 +734,25 @@ def main(argv=None):
     p.add_argument("--provider", action="append", help="update: only this provider (repeatable)")
     p.set_defaults(func=cmd_prices)
 
-    p = sub.add_parser("web", help="AI chat web apps through playwright-cli with saved login profiles")
-    p.add_argument("action", choices=["login", "status", "ask", "close", "sessions", "read"],
+    p = sub.add_parser("web", help="Chat and media generation through playwright-cli with saved login profiles")
+    p.add_argument("action", choices=["login", "status", "ask", "close", "image", "video", "audio", "sessions", "read"],
                    help="sessions/read: list AutoClaw tasks or read one; close: close kept-open browsers")
-    p.add_argument("target", nargs="?", help="chatgpt, claude, gemini, grok, muse, zai, autoclaw, codex-cloud, claude-code-web")
+    p.add_argument("target", nargs="?", help="chatgpt, claude, gemini, grok, muse, flow, flow-music, zai, autoclaw, codex-cloud, claude-code-web")
     p.add_argument("--all", action="store_true")
     p.add_argument("--prompt")
     p.add_argument("--expect", help="regex the reply must match")
     p.add_argument("--chat", help="ask: continue a chat (id, URL or title); AutoClaw ask/read require an exact title")
     p.add_argument("--file", action="append", help="ask: attach a local file (repeatable; gemini; zip a folder)")
+    p.add_argument("--reference", "--image", action="append", metavar="IMAGE",
+                   help="video: attach a local PNG, JPEG, or WebP (8 MiB each; repeat for Flow or Muse)")
     p.add_argument("--repo", help="ask: attach a GitHub repository or branch URL (gemini 'Import code')")
     p.add_argument("--mode", help="ask: composer mode, e.g. gemini chat|task")
-    p.add_argument("--timeout", type=int, default=120, help="ask: seconds to wait for the reply")
-    p.add_argument("--json", action="store_true", help="AutoClaw status/sessions/read/ask: print structured results")
+    p.add_argument("--timeout", type=int, help="seconds to wait (ask: 120, image/video/audio: 720)")
+    p.add_argument("-o", "--out", default="downloads", help="image/video/audio: parent directory for saved media")
+    p.add_argument("--json", action="store_true", help="media or AutoClaw status/sessions/read/ask: print structured results")
     p.set_defaults(func=cmd_web)
+
+    _grok_parser(sub)
 
     p = sub.add_parser("chats", help="chat/session list of a web app: list, search, pin, sections/projects (groups)")
     p.add_argument("target", help="claude (chats), claude-code-web (Code sessions), chatgpt or grok (projects), gemini (notebooks)")
@@ -643,14 +844,22 @@ def main(argv=None):
     o.add_argument("--wait", action="store_true", help="wait for the coordinator's reply")
     p.set_defaults(func=cmd_code)
 
-    p = sub.add_parser("flow", help="Google Flow: projects, media, downloads, agent options (generation is not driven here)")
+    p = sub.add_parser("flow", help="Google Flow projects, characters, settings and downloads")
     p.add_argument("--json", action="store_true")
-    p.add_argument("--timeout", type=int, default=180, help="seconds to wait for a download")
+    p.add_argument("--timeout", type=int, default=180, help="seconds to wait for a Flow result")
     ops = p.add_subparsers(dest="op", required=True)
     ops.add_parser("status", help="is the Google login still good for Flow")
     ops.add_parser("projects", help="list projects")
     o = ops.add_parser("new", help="create an empty project (free)")
     o.add_argument("--title")
+    o = ops.add_parser("new-character", help="create a reusable character in an existing Flow project")
+    o.add_argument("project", help="id, URL or exact title")
+    o.add_argument("--name", required=True, help="character name")
+    source = o.add_mutually_exclusive_group(required=True)
+    source.add_argument("--prompt", help="generate a portrait from this description (may spend Flow credits)")
+    source.add_argument("--image", help="upload a local portrait image")
+    o.add_argument("--info", help="character personality or background")
+    o.add_argument("--voice", help="Flow preset voice name")
     o = ops.add_parser("read", help="media in a project, newest first")
     o.add_argument("project", help="id, URL or exact title")
     o.add_argument("--type", choices=["video", "image"], help="only this media type")
@@ -668,6 +877,12 @@ def main(argv=None):
     o.add_argument("project")
     o.add_argument("--yes", action="store_true", help="required: the clips, ingredients and prompts are gone for good")
     p.set_defaults(func=cmd_flow)
+
+    p = sub.add_parser(
+        "media-serve", help="serve AAO media jobs on 127.0.0.1:8771",
+        description="Serve ArtCraft jobs. Set AAO_CRAFT_AI_TOKEN to enable the Craft AI media bridge.",
+    )
+    p.set_defaults(func=cmd_media_serve)
 
     p = sub.add_parser("accounts", help="list configured accounts, validate .env, pick the next account")
     p.add_argument("--agent", help="show which account would be used next for this agent")

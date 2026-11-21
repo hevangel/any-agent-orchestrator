@@ -67,6 +67,18 @@ The end-to-end run sends each agent a tiny arithmetic question: directly, in Doc
 
 Website agents use your existing logins. You sign in once yourself, and the orchestrator never types your passwords.
 
+## Generate images, video, and audio
+
+AAO uses your saved web logins to generate media and download it locally.
+
+```bash
+uv run aao web image chatgpt --prompt "A paper sailboat" --out downloads
+uv run aao web video flow --prompt "A paper sailboat drifting downstream" --out downloads
+uv run aao web audio flow-music --prompt "A gentle piano waltz" --out downloads
+```
+
+Run `uv run --extra grok-api aao media-serve` to serve jobs for the patched ArtCraft Studio or a Craft AI host that loads declarative adapters. The declarative bridge is opt-in and offers PNG, MP4, MP3, and WAV. Stock ArtCraft Studio v0.41.1 requires the patch for the Studio integration. [Provider list and setup](spec/web_interfaces.md#media-generation-from-the-web-cli) · [Declarative bridge setup](spec/web_interfaces.md#upstream-declarative-adapter-compatibility)
+
 ## How the agents coordinate
 
 **GitHub Project board: the shared to-do list.** Your main repository hosts a GitHub Project and includes each repository being worked on as a git submodule, so it behaves much like a single repository. Each task is a GitHub issue, and "blocked by" links record which tasks must finish first. Custom fields show where each task stands:

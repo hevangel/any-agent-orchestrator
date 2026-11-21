@@ -23,6 +23,10 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 
 Then, in the repository: `uv sync`.
 
+### Optional media dependencies
+
+Run `uv sync --extra grok-api` for the ArtCraft media service and Grok HTTP or MCP interfaces. Install FFmpeg on `PATH` to export Muse soundtracks or convert JPEG, WebP, and WebM for the declarative bridge. Check it with `ffmpeg -version`. WebM to MP4 conversion needs the `libx264` or `libopenh264` encoder, listed by `ffmpeg -encoders`. [Media and bridge setup](web_interfaces.md#media-generation-from-the-web-cli)
+
 ### playwright-cli
 
 Needs Node.js; install Node from nodejs.org or the OS package manager if `node` is missing.

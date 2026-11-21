@@ -10,6 +10,13 @@ dependencies = ["psutil>=6.0"]
 [project.scripts]
 aao = "orchestrator.cli:main"
 
+[project.optional-dependencies]
+grok-api = [
+    "fastapi>=0.115,<1",
+    "mcp>=1.25,<2",
+    "uvicorn>=0.31,<1",
+]
+
 [dependency-groups]
 dev = ["pytest>=8.0"]
 

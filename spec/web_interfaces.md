@@ -1,37 +1,41 @@
 # Controlling web and desktop AI interfaces
 
-How the orchestrator drives AI products that have no CLI (or whose remote/cloud mode is web-only). CLI agents are covered in [AGENTS.md](../AGENTS.md#cli-agents-herdr).
+How the orchestrator drives AI products that have no CLI (or whose remote/cloud mode is web-only). CLI agents are covered in [AGENTS.md](../AGENTS.md#cli-agents-herdr). The implemented web drivers in `src/orchestrator/` use `playwright-cli`; the Claude in Chrome extension and native desktop control are not currently wired into AAO.
 
 ## Driver per channel
 
-| Channel | Default driver | Exception |
+| Channel | Implemented driver | Scope |
 | --- | --- | --- |
-| Web app | `playwright-cli`, one named session per target (`playwright-cli -s=<target> ...`) | **Claude web / remote Claude Code** use the native **Claude in Chrome** extension (`mcp__claude-in-chrome__*`) in the user's real Chrome |
-| Web app that blocks automated Chromium (Google sign-in, Cloudflare challenges) | Attach to the user's real Chrome over CDP: `playwright-cli attach`, or `external/browser-harness` | — |
-| Native desktop app | computer-use (`mcp__computer-use__*` in the Claude desktop app) | — |
+| Web apps and remote coding agents | `playwright-cli` with persistent profiles and named sessions | `aao web`, `aao chats`, `aao code`, `aao codex`, and `aao flow` |
+| Existing Chrome / Browserless via CDP | `aao grok attach --config <path>` | Grok only; the config must provide `browser.cdpEndpoint` |
+| Claude in Chrome extension | Not integrated | The reference in other project guidance is not an AAO driver |
+| Native desktop apps | Not integrated | No computer-use driver is implemented in this repository |
 
 ## Targets
 
-Selectors below come from the reference adapters at their pinned submodule commits. Web UIs change often: prefer `playwright-cli snapshot` element refs at run time and treat these selectors only as hints.
+The implemented targets and their command surfaces are listed below. Web UIs change often; selectors in the code are site-specific recipes and may need updating when a site changes.
 
-| Target | URL | Composer | Send / done signal | Reference |
-| --- | --- | --- | --- | --- |
-| Grok | `https://grok.com/` | `[contenteditable='true'][aria-label='Message Grok']` | **Studied and scripted (chat and projects; Grok Bot not covered), see below** | `web.py` `TARGETS["grok"]`, `web_chats_grok.py` |
-| Muse (Meta) | `https://muse.ai` (chat URL discovered at login) | `textarea[placeholder='Message']` | Send button with `aria-label*=Send`; generating while a visible `Stop` button or `animate-pulse` in `.hatch-chat-groupable-bubble` | `external/MuseBridge/muse_bridge.py` (`detect_selectors`, `_is_generating`, `_wait_for_reply`) |
-| Gemini | `https://gemini.google.com/app` | `rich-textarea [contenteditable][role=textbox]` | **Studied and scripted (chat, task, attachments, notebooks), see below**; signing in by hand in the playwright-cli Chrome worked | `web.py` `TARGETS["gemini"]`, `web_chats_gemini.py` |
-| Claude web | `https://claude.ai/new` | `[role='textbox'][aria-label='Write your prompt to Claude']` (ProseMirror) | **Studied and scripted (playwright-cli), see below** | `web.py` `TARGETS["claude"]`; Claude in Chrome remains an alternative |
-| Remote Claude Code | `https://claude.ai/code` | `[data-testid='code-prompt-input']` | **Studied and scripted, see "Claude Code on the web"** | `web_code.py`; shares the `claude` login |
-| ChatGPT | `https://chatgpt.com/` | `[contenteditable='true'][aria-label='Ask ChatGPT']` (`#prompt-textarea` is gone) | **Studied and scripted (playwright-cli), see below** | `web.py` `TARGETS["chatgpt"]`, `web_chats_chatgpt.py` |
-| Remote Codex | `https://chatgpt.com/` in **Codex mode** (threads `/local/<id>`) | contenteditable "Do anything" | **Studied (reading and questions), see "Codex on chatgpt.com"** | `web_codex.py`; shares the `chatgpt` login |
-| Google Flow | `https://flow.google.com/` | project page: agent box "What do you want to create?" | **Studied and scripted (projects, media, downloads, agent options; generation not driven), see "Google Flow"** | `web_flow.py`; shares the `gemini` login |
-| Z.ai coder | `https://chat.z.ai/` | discover with `snapshot` | discover with `snapshot` | none yet: use MuseBridge's auto-discovery approach |
-| AutoClaw (Zwork Remote Control) | `https://autoclaw-remote-web.z.ai/` | `send-input` | Existing remote sessions and task completion | `web_autoclaw.py` |
+| Target | URL | Implemented support |
+| --- | --- | --- |
+| Grok | `https://grok.com/` | Chat turns and projects; Imagine image/video generation; Grok-only CDP attach. Bot support is not implemented. |
+| Muse | `https://muse.ai/` | Browser login/status and image and video generation. General chat turn extraction is not implemented. |
+| Gemini | `https://gemini.google.com/app` | Chat and Task turns, local file and GitHub-repository attachments, chat list/notebooks, image/video generation. |
+| Claude web | `https://claude.ai/new` | Chat turns and chat list/sections through Playwright. |
+| Claude Code on the web | `https://claude.ai/code` | Sessions and beta projects through `aao code`; shares the Claude browser profile. |
+| ChatGPT | `https://chatgpt.com/` | Chat turns, chat list/projects, image generation. |
+| Codex on the web | `https://chatgpt.com/` in Codex mode | Threads and question handling through `aao codex`; shares the ChatGPT browser profile. |
+| Google Flow | `https://flow.google.com/` | Project/media management and image/video generation; shares the Gemini browser profile. |
+| Google Flow Music | `https://www.flowmusic.app/` | Song generation and MP3 downloads for AAO and ArtCraft. Sign in once with `aao web login flow-music`. |
+| Z.ai | `https://chat.z.ai/` | Browser login/status only; a scripted chat turn is not implemented. |
+| AutoClaw (Zwork Remote Control) | `https://autoclaw-remote-web.z.ai/` | Pair a Zwork computer, list sessions, read transcripts, and send prompts to an existing session. |
+
+`aao web ask` has reliable, structured turn handling for Claude, ChatGPT, Gemini, and Grok. Muse and Z.ai are declared browser targets, but their recipes have no structured assistant-message or completion selectors; the generic whole-page fallback is not a reliable chat-turn driver. Use `aao code` and `aao codex` for remote coding sessions rather than `aao web ask`.
 
 ## Scripted recipes (`src/orchestrator/web.py`)
 
-Each studied target has a recipe in `TARGETS`; `PAGE_SCRIPT` runs it with playwright-cli `run-code`, with no LLM in the loop. Keys: `composer` (selectors, first visible wins), `send` (button clicked only if Enter did not send), `user` (user turns, proves the send), `assistant` (assistant turns; the last one is the reply), `busy` (any visible means still writing), `strip` (removed from the reply before reading its text). A target without `assistant` still uses the old whole-page text check.
+The four scripted chat targets have recipes in `TARGETS`; `PAGE_SCRIPT` runs them with `playwright-cli run-code`, with no LLM in the loop. Keys include `composer` (first visible selector), `send` (fallback button if Enter did not send), `user` (proves the turn was sent), `assistant` (the reply source), `busy` (still generating), and `strip` (elements removed before reading). Targets without an `assistant` selector fall back to whole-page text matching; that fallback does not reliably detect a completed reply and is not supported chat-turn behavior.
 
-Turn: open the target URL (always a new chat) → count assistant turns → click composer, insert text, Enter → wait up to 10 s for a new user turn or a URL change, else click `send` once → wait for a new assistant turn with no `busy` marker whose text is identical across two 1 s polls → return `reply`, `url`, `seconds`; `ok` is the `expect` regex tested on the reply only.
+Turn: open the target's new-chat URL by default (or the resolved existing chat from `--chat`) → count assistant turns → click composer, insert text, Enter → wait up to 10 s for a new user turn or a URL change, else click `send` once → wait for a new assistant turn with no `busy` marker whose text is identical across two 1 s polls → return `reply`, `url`, `seconds`; `ok` is the optional `--expect` regex tested on the reply only.
 
 | Target | Studied | Signals |
 | --- | --- | --- |
@@ -109,7 +113,7 @@ The e2e test (`tests/e2e/test_web_chat_list.py`) makes its own chat and a throwa
 
 ## Browser sessions
 
-Targets on the same site and account share one login: `TARGETS[t]["profile"]` (claude-code-web uses `claude`), so one profile and one playwright-cli session `aao-web-<login>` (Chrome cannot open a profile twice). Commands reuse an open browser (`playwright-cli list`) and leave it open; `aao web close [t|--all]` closes it, `AAO_WEB_KEEP_OPEN=0` closes after every command. Do not run two commands against the same browser at once. playwright-cli `run-code` has no `URL` global outside `page.evaluate`: parse `page.url()` by hand.
+Targets on the same site and account share one login: `TARGETS[t]["profile"]` (Claude Code shares `claude`, Codex shares `chatgpt`, and Flow shares `gemini`), so they share the named Playwright session `aao-web-<login>`. Profiles are stored outside the repository at `~/.aao/browser-profiles/<login>` by default; `AAO_WEB_PROFILE_DIR` changes the base directory. `aao web login` opens a headed browser and waits for a human to sign in; AAO does not type credentials. Commands reuse an open browser and leave it open; `aao web close [t|--all]` closes it, and `AAO_WEB_KEEP_OPEN=0` closes it after each command. `AAO_WEB_HEADED=0` requests a headless browser, and `AAO_WEB_BROWSER` selects the browser (set it to `chrome` to use installed Chrome). Do not run two commands against the same browser at once. Only Grok has a separate CDP attach command. playwright-cli `run-code` has no `URL` global outside `page.evaluate`: parse `page.url()` by hand.
 
 ## Claude Code on the web (`src/orchestrator/web_code.py`)
 
@@ -153,12 +157,13 @@ Build, debug, and ship": match the first `innerText` line (Playwright `hasText` 
 
 ## Google Flow (`src/orchestrator/web_flow.py`)
 
-`flow.google.com` (AI studio for video and images), studied 2026-11-13. Same Google account as Gemini, so the `flow` target uses the `gemini` profile and browser session (`aao web login gemini`; the site was `labs.google/fx/tools/flow` and now redirects). It is not a chat: a project is a grid of media plus an **agent** panel ("What do you want to create?") that asks before it generates. This driver covers everything that costs nothing; generation is deliberately left out until a credit policy is chosen.
+`flow.google.com` (AI studio for video and images) uses the Gemini profile and browser session (`aao web login gemini`). The `aao flow` commands cover projects and media management. The `aao web` CLI and ArtCraft use the same direct composer to generate one image or video in a dedicated Flow project and download the original. The generic `aao web image|video flow` command exposes prompt, timeout, and output directory, not Flow's model/count settings. Generation uses the signed-in account's quota or credits.
 
 ```sh
 uv run aao flow status                                  # is the Google login still good
 uv run aao flow projects                                # id, title (default title is the creation date)
 uv run aao flow new [--title "..."]                     # empty project, free
+uv run aao flow new-character <project> --name NAME (--prompt TEXT | --image FILE) [--info TEXT] [--voice NAME]
 uv run aao flow read <project> [--type video|image]     # media, newest first: index, type, name, thumbnail
 uv run aao flow download <project> <media> [--to DIR] [--quality original|gif|1080p|4k]
 uv run aao flow options [--project P]                   # live agent settings and every choice; never saves
@@ -166,9 +171,9 @@ uv run aao flow upload <project> <file>...                # reference images/vid
 uv run aao flow delete <project> --yes                  # PERMANENT: clips, ingredients and prompts are gone
 ```
 
-`<project>` is an id, a project URL or an exact title (one old project has the id `..._backfill`, so ids are not always uuids). `<media>` is the 1-based index from `read` (the tiles carry no id in the DOM) or the exact media name. Every command accepts `--json` before the sub-command (`aao flow --json read ...`).
+`<project>` is an id, a project URL or an exact title (one old project has the id `..._backfill`, so ids are not always uuids). `<media>` is the 1-based index from `read` (the tiles carry no id in the DOM) or the exact media name. Every command accepts `--json` before the sub-command (`aao flow --json read ...`). `options` reads the active mode and model choices in the direct composer, or both model lists if the project still exposes the older agent settings panel.
 
-**Credits.** Free: read, create, rename, upload, original-size download, GIF download, delete. Spends credits: generating (agent prompt) and the upscaled downloads. `download` is `--quality original` unless told otherwise; `1080p` is "Upscaled, 5 credits" and `4k` is "Upscaled" (also credits). A media's download menu is `More options > Download > 270p Animated GIF | 720p Original size | 1080p Upscaled | 4K Upscaled`; images have no GIF.
+**Credits.** Reading, creating, renaming, uploading, deleting, original-size downloads, and video GIF downloads are free. Generation and upscaled downloads can spend credits. `download` defaults to `--quality original`, which handles direct downloads and selects **Original size** when Flow opens a submenu. Select `1080p` or `4k` explicitly for an upscale.
 
 ### Options the agent can choose from
 
@@ -190,38 +195,114 @@ These are the agent's per-project defaults in the panel's **Settings**, applied 
 
 - Home: project cards `a[href^='/project/<id>']` with "Edit project title" and "Delete project" buttons; "New project" creates one and the URL becomes `/project/<id>`. Delete asks "Are you sure ... permanently deleted" with a `Delete project` button.
 - Project page: media in `flow-grid-tile-container > flow-<type>-tile`; the title is an always-present `textbox "Editable text"` (an h1 only while not edited); a populated project shows the agent panel on the right, an empty one shows the box at the bottom. Clicking a tile opens a viewer without changing the URL.
-- Upload: top bar `Add media menu` (+) > `Upload` opens the OS file chooser. playwright-cli reports it as a modal state (every other command fails with "does not handle the modal state" until it is filled) and `playwright-cli upload <file>` fills it, one file per call, so `aao flow upload` runs open / upload / wait-for-the-new-tile once per file. An uploaded image becomes an `image` tile named after the file, listed newest first; the agent can use it as a reference ("ingredient"). The same menu offers New collection, Create character and New scene (not driven).
+- Upload: top bar `Add media menu` (+) > `Upload` opens the OS file chooser. playwright-cli reports it as a modal state (every other command fails with "does not handle the modal state" until it is filled) and `playwright-cli upload <file>` fills it, one file per call, so `aao flow upload` runs open / upload / wait-for-the-new-tile once per file. An uploaded image becomes an `image` tile named after the file, listed newest first, and the agent can use it as a reference ("ingredient").
+- Characters: `new-character` opens the project's character builder, uploads one local portrait with `--image` or generates one with `--prompt`, then names and saves the reusable character. `--info` sets the character's background or personality, and `--voice` selects a built-in voice by name. `aao flow --json new-character ...` returns the character ID, name and editor URL. Portrait generation may use Flow credits. If Flow opens the editor and a later step fails, the command prints the editor URL so you can finish the same character there. The Playwright workflow follows the [flow-mcp UI reference](https://github.com/GTAI-1/flow-mcp/blob/main/CLAUDE.md).
 - A cookie banner ("flow.google.com uses cookies") overlaps the bottom; the driver presses `No thanks`.
 - `run-code` has no `URL` global (parse `page.url()` by hand) and the home page loads slowly: the `flow` target settles 12 s before the login check.
 - Tests: `tests/e2e/test_web_flow.py` is read-only plus one free download; project create, upload and delete were checked by hand on throwaway projects.
 
-## Turn protocol (every web target)
+## Grok chat and Imagine (`src/orchestrator/web_grok.py`)
 
-1. Open or reuse the target's session; never share one browser session between targets.
-2. Check login (URL contains `login`/`auth`/`sign`, or no composer). If logged out, stop and ask the human to log in in a headed session; never type credentials. Persist with `playwright-cli state-save` (stored under `.playwright-cli/`, gitignored, or the `playwright-profiles` Docker volume).
-3. `snapshot` → fill the composer → send. Upload files through the page's file input (`upload`) only after clicking the attach control (see `ModelAdapter.upload_files` in mcp-web-llm).
-4. Wait until generation ends: no visible Stop button **and** the last assistant message is unchanged across two polls.
-5. Extract only the last assistant message and return it to the orchestrator; long-running remote sessions (remote Claude Code, Codex tasks) are polled, not awaited.
+`aao grok` uses the browser session shared by `aao web` and `aao chats grok`. Sign in once with `aao web login grok`. The new text command and `aao web ask grok --prompt` print the full captured reply and send a leading `Thought for …` header to stderr. A custom prompt succeeds without a matcher unless you supply `--expect`. `aao web ask grok` without a prompt still runs its generated smoke test.
+
+```sh
+uv run aao grok chat "Summarize our discussion" --chat "Project notes"
+uv run aao grok image "A paper plane over mountains" --quality Quality --aspect 16:9 --count 4 -o downloads
+uv run aao grok video "Animate the paper plane" --image reference.png --res 720p --duration 10s --aspect 16:9 -o downloads
+uv run aao grok --json image "A red teapot" --aspect 1:1
+```
+
+Imagine generation uses the signed-in account's quota. Images support `Speed` or `Quality` and counts `Auto`, `4`, `8`, and `12`. Videos support `480p` or `720p` and `6s` or `10s`. Both support `2:3`, `3:2`, `1:1`, `9:16`, and `16:9`. Video opens a visible browser when starting a session. It reuses an open session, so close a headless Grok session before generating video in a visible one. `--timeout` controls the time to wait for media after submission. Files default to `downloads/` and have unique names per run. JSON includes saved paths, available HTTPS media URLs, and the conversation URL. A partial download reports its saved files and returns a failure exit code.
+
+The driver selects Imagine controls, records the existing media sources, submits once, and waits for new sources to settle. It saves inline and remote media using Playwright. The optional reference image is set through the Imagine file input before submitting a video.
+
+### Python, HTTP, and MCP
+
+Import `chat`, `generate_image`, and `generate_video` from `orchestrator.web_grok` for Python. Install the optional server dependencies with `uv sync --extra grok-api`.
+
+- `uv run --extra grok-api aao grok serve --port 8000` binds to `127.0.0.1`. `GET /health` checks the service. POST JSON containing `prompt` and any options to `/chat/messages`, `/imagine/images`, or `/imagine/videos`. Imagine accepts `aspect_ratio`, `download_dir`, and `timeout_s` plus its image or video controls.
+- `uv run --extra grok-api aao grok mcp` starts the stdio MCP server with `grok_chat`, `grok_generate_image`, and `grok_generate_video`. For an MCP client outside the repository, use `uv --directory <repo> run --extra grok-api aao grok mcp`.
+
+Requests within one server share the browser and run serially. Use one CLI command or server at a time with the same browser session.
+
+### Browser selection
+
+`uv run aao grok install-browser` installs optional Playwright Chromium. Installed Chrome remains the default configuration. Close the Grok session before setting `AAO_WEB_BROWSER=chromium` to start a new one with Chromium.
+
+To use an existing Chrome or Browserless instance, run `aao web close grok` and `aao grok attach --config <path>`. Pass a Playwright config whose `browser.cdpEndpoint` is the instance's HTTP or WebSocket endpoint. For example, `{ "browser": { "cdpEndpoint": "http://127.0.0.1:9222" } }` attaches to local Chrome listening on that port. The attached browser must have a valid Grok login. Use `aao web close grok` to close the AAO session before switching back to a local profile.
+
+## Media generation from the web CLI
+
+```sh
+uv run aao web image flow --prompt "A paper plane on a white table"
+uv run aao web image gemini --prompt "A paper plane on a white table"
+uv run aao web image chatgpt --prompt "A paper plane on a white table"
+uv run aao web image muse --prompt "A paper plane on a white table"
+uv run aao web video flow --reference plane.png --reference lake.jpg --prompt "A paper plane gliding over a lake"
+uv run aao web video gemini --reference plane.png --prompt "A paper plane gliding over a lake"
+uv run aao web video muse --reference plane.png --prompt "A paper plane gliding over a lake"
+uv run aao web video grok --reference plane.png --prompt "A paper plane gliding over a lake" --json
+uv run aao web audio grok --prompt "A soft five-second two-note doorbell chime with a gentle echo" --json
+uv run aao web audio muse --prompt "A short instrumental with gently plucked guitar and a soft bell"
+uv run aao web audio flow-music --prompt "An acoustic lullaby with piano and brushed drums" --out downloads
+```
+
+Images support ChatGPT, Flow, Gemini, Grok, and Muse. Video supports Flow, Gemini, Grok, and Muse. Audio supports Flow Music, Grok, and Muse. Each `aao web image|video|audio` command requires `--prompt` and accepts `--out DIR`, `--timeout SECONDS`, and `--json`. Each run writes into a new subdirectory under `downloads/` by default. Use `aao grok image|video` for Grok-specific quality, count, and aspect controls and `aao flow` for Flow project and media management.
+
+For video, `--reference IMAGE` (also `--image IMAGE`) accepts local PNG, JPEG, or WebP files up to 8 MiB each. Repeat the option for up to three Flow ingredients or four Muse reference images. Gemini accepts one reference image and Grok uses one image as the first frame. Omit the option for text-to-video. The CLI validates references before opening Chrome.
+
+The CLI and ArtCraft use the same browser drivers. Gemini opens **Upload and tools → Upload files** and waits for the attachment chip before sending. Flow switches to **Ingredients** and checks that each uploaded image appears in the prompt. Grok waits for the first-frame preview, and Muse waits for its attachment controls before sending.
+
+For audio, sign in once with `aao web login <target>`. Grok chat accepts a request for a specific downloadable WAV and can use its sandbox to render the audio. AAO saves the file from the inline audio player. Muse's direct audio requests reported unavailable in testing. AAO requests a short video with sound and exports its soundtrack as MP3 using FFmpeg on `PATH`. Flow Music creates a song in a new session and downloads it as MP3. The driver uses keyboard activation for **Send** so the cookie banner can stay open.
+
+## ArtCraft generation via AAO
+
+Apply [the ArtCraft patch](../integrations/artcraft/aao-generation.patch) to a writable ArtCraft checkout at `a6d52df45e`. From this repo, start the loopback job service with `uv run --extra grok-api aao media-serve` (127.0.0.1:8771). In ArtCraft, open the model dropdown under **Create Image** or **Create Video** and choose a provider labeled **via AAO**. The service uses the current CLI accounts and AAO browser profiles; it is local-only and accepts requests from the supported desktop origins, not arbitrary websites.
+
+ArtCraft imports completed files into the signed-in account's **My Library** in the background. Imported files use the normal **Download** action and honor **Settings → Downloads → Auto Download**. The result controls let you retry a failed import or save the original AAO file locally while the library import is unavailable.
+
+ArtCraft offers Codex CLI, Antigravity CLI, Cursor Agent CLI, ChatGPT Web, Gemini, Google Flow, Muse, and Grok Imagine under **Create Image** and **Image Editor**. CLI providers require their executable on `PATH` and use their configured YOLO permission flags. Image jobs can include up to four PNG, JPEG, or WebP references (8 MiB each) and an optional aspect ratio. The Image Editor sends its composited canvas as a reference. Gemini, Flow, and Grok use their native aspect controls where available. AAO adds an aspect instruction to the prompt for Muse, ChatGPT, CLI providers, and Grok ratios unavailable in its menu.
+
+Under **Create Video**, use **Upload** or **Pick from library** on the reference card to add PNG, JPEG, or WebP images (8 MiB each). Grok Imagine takes one first frame, Gemini takes one reference image, Muse accepts up to four reference images, and Flow accepts up to three ingredients in a dedicated generation project. Provider quotas and limits apply.
+
+Under **Create Audio**, choose **Google Flow Music (via AAO)** from the same model menu as Suno. The browser driver starts a new Flow Music session, submits the song description, and downloads the first completed song as an MP3. ArtCraft imports it into **My Library** and shows it in the audio feed. Flow Music uses its own Chrome profile and the signed-in account's generation quota.
+
+**Grok Audio (via AAO)** asks the signed-in Grok chat for a standalone WAV attachment. **Muse Soundtrack (via AAO)** generates a short video with sound through the signed-in Muse account and uses FFmpeg on `PATH` to export the audio as MP3. Both use the same ArtCraft download and library import flow.
+
+### Upstream declarative adapter compatibility
+
+[Craft AI's declarative adapter](https://github.com/storytold/craft-ai-integrations/blob/a822ad5b4db2c0dcd7a43bb62d6d75251fd3f8b5/docs/design/declarative-adapter.md) can use the AAO media bridge. The host app needs a `ProviderFactory` that includes the declarative provider and a tool bound to a model with the matching capability. Stock ArtCraft Studio v0.41.1 does not load that provider. Its localhost setting selects the ArtCraft backend for the whole app.
+
+1. Set `AAO_CRAFT_AI_TOKEN` in the environment where you run `uv run --extra grok-api aao media-serve`. Use a randomly generated URL-safe token of 32–128 characters. The bridge is disabled when the variable is unset. On PowerShell, generate a fresh token with `$env:AAO_CRAFT_AI_TOKEN = [Convert]::ToHexString([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(32))`. Keep the same token for future starts of AAO and in the Craft connection.
+2. In a Craft AI host that supports declarative providers, create a local connection with `provider: "declarative"` and `endpoint: "http://127.0.0.1:8771/craft-ai/v1"`. Save the bearer token through the host's secret store. Create a separate connection for each spec you use.
+3. The host loads the spec from `specs/<connection-id>.json` beside `connections.json` under `CRAFT_AI_DIR` (default `%LOCALAPPDATA%/ArtCraft/ai` on Windows). Use the host-assigned connection ID as the filename and keep the spec's `base` identical to the connection's `endpoint`. Run the connection's read-only probe, then bind the matching generation tool to a model in the spec.
+
+| Spec | Capability | AAO providers |
+| --- | --- | --- |
+| [AAO PNG](../integrations/artcraft/aao-png.json) | `image.generate` | ChatGPT, Google Flow, Gemini, Grok Imagine, Muse |
+| [AAO MP4](../integrations/artcraft/aao-mp4.json) | `video.generate` | Google Flow, Gemini, Grok Imagine, Muse |
+| [AAO MP3](../integrations/artcraft/aao-mp3.json) | `audio.generate` | Google Flow Music, Muse |
+| [AAO WAV](../integrations/artcraft/aao-wav.json) | `audio.generate` | Grok |
+
+The bridge shares AAO's existing media queue and drivers. Its `POST /jobs` accepts `provider`, `kind` (`image`, `video`, or `audio`), and `prompt`. The spec takes the UUID from `/id` and polls `GET /jobs/{job_id}`. The bridge responds with `pending`, `succeeded`, or `failed` in `/state`. Completed media is returned inline at `/result/data` because the adapter rejects localhost result URLs. Results above 23 MiB fail to keep encoded responses within the adapter's 32 MiB JSON limit. The bridge scopes jobs and bearer credentials separately from the patched Studio routes.
+
+Version 1 accepts one prompt and extracts one result. The bridge returns the first usable image or video in the provider's response. FFmpeg on `PATH` converts JPEG and WebP to PNG and uses `libx264` or `libopenh264` to convert WebM to MP4, preserving an audio track when present. Reference attachments and dedicated aspect ratio settings are available through the patched Studio routes. The declarative host handles previews, downloads, and library imports. The specs omit cancellation because AAO does not stop in-progress browser work.
+
+The upstream Rust adapter at revision `a822ad5b` verified all four specs against the AAO HTTP bridge. Audio fixtures matched byte for byte. The visual fixtures exercised JPEG to PNG and WebM to MP4, and `ffprobe` confirmed H.264 video and AAC audio. These tests used fixture files and did not submit live browser jobs.
+
+## Turn protocol (`aao web ask`)
+
+This protocol applies to the scripted chat targets Claude, ChatGPT, Gemini, and Grok. It does not describe the separate `aao code`, `aao codex`, Flow, Imagine, or ArtCraft workflows.
+
+1. Open or reuse the target's named Playwright session and persistent profile; targets that share a site/account also share a session.
+2. `aao web login` opens a headed browser and waits for the human to complete sign-in. AAO never types passwords or 2FA codes. Profiles are kept outside the repository (see [Browser sessions](#browser-sessions)).
+3. `aao web ask` starts at the target's new-chat page, or resolves `--chat` and opens that existing conversation. It uses fixed selectors and Enter, with a send-button fallback where configured. Only Gemini supports `--file` and `--repo` attachments.
+4. The scripted targets confirm that the user turn was sent, then wait for a new assistant turn with no busy marker and unchanged text across two polls. `--expect` tests the reply text; it is optional.
+5. Claude Code and Codex work is started and polled through their own commands. Use `--wait` when the caller should wait for a turn, or `read`/`wait` to inspect an existing session or thread.
 
 ## Reference projects (`external/`, read-only)
 
-### Grok Web SDK comparison
-
-The [Grok Web SDK](../external/grok-web-sdk/README.md) is a reference checkout. The comparison uses its pinned source and the AAO command help.
-
-| Capability | AAO | Grok Web SDK |
-| --- | --- | --- |
-| Sign-in and browser | Manual sign-in with a saved Chrome profile, login status, and explicit browser close. | Manual sign-in with a saved Chrome profile, a bundled Chromium installer, and optional Browserless CDP through Python. |
-| Text chat | Sends new prompts and continues existing chats by ID, URL, or exact title. `web.ask` returns the reply and URL. The CLI shows up to 500 reply characters and defaults `--expect` to the smoke test's answer even with a custom prompt. | Sends each prompt in a new conversation, prints the full captured reply, and separates the reasoning header when present. HTTP, MCP, and Python also return the conversation URL. |
-| Chat and project management | Lists and searches chats, pins and unpins them, moves them into and out of projects, and lists, creates, or deletes projects. | The public interfaces cover prompt submission and media generation. |
-| Imagine images | No Grok Imagine image command. | Generates and downloads images with Speed or Quality, aspect ratio, and image count (`Auto`, `4`, `8`, or `12`). |
-| Imagine video | No Grok Imagine video command. | Generates and downloads videos at `480p` or `720p` for `6s` or `10s`, with aspect ratio selection. The Python API also accepts a reference image for image-to-video. |
-| Programmatic interfaces | Python functions for Grok chat and project operations. | Python API, local HTTP API, and stdio MCP server for chat and media generation. |
-
-Both Imagine commands support a configurable download directory and print saved file paths. HTTP and Python media results also carry available media URLs and the conversation URL. The SDK CLI offers `2:3`, `3:2`, `1:1`, `9:16`, and `16:9` for both modes. This comparison did not run live Grok requests.
-
-### Other reference projects
-
+- **[Grok Web SDK](../external/grok-web-sdk/README.md)** — reference for Imagine selectors, media settings, result detection, and chat reasoning headers.
 - **mcp-web-llm** — Playwright adapters (`models/<site>.py`, base class `models/base.py`) for ChatGPT, Claude, Gemini, DeepSeek, Grok, Qwen, over CDP to a dedicated Chrome (`--remote-debugging-port=9222 --user-data-dir=...`).
 - **MuseBridge** — Muse web UI exposed as an Anthropic Messages API (`127.0.0.1:8765/v1/messages`) for Claude Code; its headed `login` command auto-discovers composer/send/message selectors into a config file. Muse access is region-restricted.
 - **browser-harness** — CDP control of the user's running Chrome with per-domain skills (`agent-workspace/domain-skills/`) and interaction skills (uploads, iframes, shadow DOM, dialogs).
