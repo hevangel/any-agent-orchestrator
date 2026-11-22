@@ -1,6 +1,6 @@
 {
   "schema": "free-tokens-v1",
-  "updated_at": "2026-11-21T16:20:00Z",
+  "updated_at": "2026-11-22T16:05:00Z",
   "updated_by": "ChatGPT daily AI token & media deals",
   "notes": "Free token, credit and free-tier offers usable by the agents in agents.json. Maintained daily by an agent following prompts/daily_data_update.md; every entry needs a source URL and a verification date. Validate with: uv run aao free-tokens validate",
   "sources": [
@@ -22,7 +22,7 @@
       "url": "https://platform.iteracompute.com/free/",
       "expires": "2026-11-24",
       "status": "active",
-      "verified_at": "2026-11-21",
+      "verified_at": "2026-11-22",
       "notes": "No card/recharge for current promotional access; email verification. Auto routes Qwen3.8/DeepSeek models via OpenAI-compatible API, 30M input+output tokens per UTC month, 128K context, 8,192 output, one in-flight request and shared capacity with queues/no SLA. IMPORTANT: at 00:00 Pacific Nov 24, no-purchase Auto access ends; only users with a positive net recharge completed BEFORE the cutoff or current paid plan retain free access. Recharges after cutoff do not grant free benefits. No automatic paid overage; monthly limit returns 429. Avoid sensitive data; no ZDR guarantee. Official Nov 21 check: no-purchase access ends 00:00 Pacific Nov 24; existing eligible recharged-before-cutoff accounts or active plan retain Auto benefit. No automatic paid overage; shared idle capacity."
     },
     {
@@ -43,7 +43,7 @@
       "url": "https://vercel.com/docs/ai-gateway/pricing",
       "expires": null,
       "status": "active",
-      "verified_at": "2026-11-21",
+      "verified_at": "2026-11-22",
       "notes": "No credit purchase required for eligible free team; first request starts credit cycle; purchasing credits terminates recurring grant. Paid models consume the $5 balance. Auto top-up is disabled by default; leave disabled to avoid unexpected billing. No announced end date. Official pricing checked Nov 21; recurring $5/month for eligible free accounts, buying credits terminates recurring grant. Auto top-up should remain disabled."
     },
     {
@@ -185,7 +185,7 @@
       "url": "https://openrouter.ai/recraft/recraft-v4.1-flash-v2:free",
       "expires": "2026-11-28",
       "status": "active",
-      "verified_at": "2026-11-21",
+      "verified_at": "2026-11-22",
       "notes": "Text-to-image only, no image inputs, style references or editing; palette and background controls. Free variant subject to OpenRouter 50 requests/day and 20/min unless eligible for paid quota upgrade; no fixed image allowance; ends November 28. Official Nov 21 check: free variant retiring Nov 28; paid endpoints remain. Text-to-image only; no image inputs or style references."
     },
     {
@@ -205,7 +205,7 @@
       "url": "https://vercel.com/changelog/parallel-decisions-now-available-on-ai-gateway-for-free",
       "expires": "2026-11-23",
       "status": "active",
-      "verified_at": "2026-11-21",
+      "verified_at": "2026-11-22",
       "notes": "Web-grounded decision API, not ordinary chat completion; Vercel AI Gateway account, no separate Parallel account; exact promotional request cap/card requirements not specified. Official Nov 21 check: free through Nov 23; model parallel/parallel-decisions-fast; separate Parallel account not needed."
     },
     {
@@ -226,7 +226,7 @@
       "url": "https://openrouter.ai/collections/free-models",
       "expires": null,
       "status": "active",
-      "verified_at": "2026-11-20",
+      "verified_at": "2026-11-22",
       "notes": "Model openrouter/free routes to an eligible zero-priced model, which may vary per call. OpenRouter :free variants require no credit purchase; default 50 requests/day and 20/min, 1,000/day after $10 purchased. No fixed token allowance."
     },
     {
@@ -521,8 +521,113 @@
       "url": "https://picsart.com/wan-3-0-free-generation-promotion-terms/",
       "expires": "2026-11-22",
       "status": "active",
-      "verified_at": "2026-11-21",
+      "verified_at": "2026-11-22",
       "notes": "NEW promotion Nov 20-22 inclusive UTC; PURCHASE-GATED, not a no-purchase giveaway. Must make a nonrefundable qualifying top-up during promo; minimum amount displayed on promotion page/checkout, exact threshold not published in terms. Adults with eligible accounts only; card/payment required to top up. Eligible only via Picsart MCP, CLI or API (not web app), WAN 3.0 at 480p or 720p; other resolutions/models and after-promo requests charged at standard rates. Queues, concurrency, per-hour/day limits and fair use apply; no fixed free seconds or generation count. Starting 2026-11-23T00:00Z regular billing resumes; safeguard API calls and balances. Regional eligibility and privacy policy require review."
+    },
+    {
+      "id": "openrouter-nvidia-nemotron-3-5-lightning-free",
+      "provider": "OpenRouter / NVIDIA",
+      "offer": "Nemotron 3.5 Lightning free coding/reasoning API",
+      "kind": "free-tier",
+      "amount": "$0/M input; $0/M output",
+      "agent_ids": [
+        "opencode",
+        "pi",
+        "hermes",
+        "kilo"
+      ],
+      "access": [
+        "api"
+      ],
+      "url": "https://openrouter.ai/nvidia/nemotron-3.5-lightning:free",
+      "expires": null,
+      "status": "active",
+      "verified_at": "2026-11-22",
+      "notes": "30B total/3B active MoE, 1M context, tool-using fast agentic workloads. Released Aug 11, not new this week. OpenRouter free variant: 50 requests/day and 20/minute without purchased credits; higher daily cap after qualifying top-up. No card purchase needed for :free, but card-on-file requirement unverified. NVIDIA logs free endpoint data for security and product improvement: do not send proprietary code, RTL or personal data."
+    },
+    {
+      "id": "openrouter-google-gemma-4-26b-a4b-free",
+      "provider": "OpenRouter / Google",
+      "offer": "Gemma 4 26B A4B free multimodal reasoning API",
+      "kind": "free-tier",
+      "amount": "$0/M input; $0/M output",
+      "agent_ids": [
+        "opencode",
+        "pi",
+        "hermes",
+        "kilo"
+      ],
+      "access": [
+        "api"
+      ],
+      "url": "https://openrouter.ai/google/gemma-4-26b-a4b-it:free",
+      "expires": null,
+      "status": "active",
+      "verified_at": "2026-11-22",
+      "notes": "25.2B total/3.8B active MoE; 262K context; text/image/video inputs, text outputs, function calling, reasoning and structured output. Apache 2.0. Released Apr 3, not new this week. :free route requires OpenRouter key, no purchased credits; 50 requests/day and 20/minute baseline; no published expiry. Provider-specific data retention and card-on-file requirements unverified."
+    },
+    {
+      "id": "openrouter-google-gemma-4-31b-free",
+      "provider": "OpenRouter / Google",
+      "offer": "Gemma 4 31B free multimodal coding/reasoning API",
+      "kind": "free-tier",
+      "amount": "$0/M input; $0/M output",
+      "agent_ids": [
+        "opencode",
+        "pi",
+        "hermes",
+        "kilo"
+      ],
+      "access": [
+        "api"
+      ],
+      "url": "https://openrouter.ai/google/gemma-4-31b-it:free",
+      "expires": null,
+      "status": "active",
+      "verified_at": "2026-11-22",
+      "notes": "30.7B dense model; 262K context, text/image/video inputs and text output; tool calling and JSON mode without schema enforcement. Apache 2.0. Released Apr 2, not new this week. :free route requires OpenRouter API key, no purchased credits; 50 requests/day and 20/minute baseline; no published expiry. Data retention/card requirements unverified."
+    },
+    {
+      "id": "openrouter-nvidia-nemotron-3-nano-omni-free",
+      "provider": "OpenRouter / NVIDIA",
+      "offer": "Nemotron 3 Nano Omni free text/audio/image/video understanding API",
+      "kind": "free-tier",
+      "amount": "$0/M input; $0/M output",
+      "agent_ids": [
+        "opencode",
+        "pi",
+        "hermes",
+        "kilo"
+      ],
+      "access": [
+        "api"
+      ],
+      "url": "https://openrouter.ai/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+      "expires": null,
+      "status": "active",
+      "verified_at": "2026-11-22",
+      "notes": "30B total/3B active multimodal model; 256K context, 65,536 max output; text, audio, image, video input and text output, tool calling but no enforced JSON response_format. Released Apr 28, not new this week. OpenRouter :free baseline 50 requests/day, 20/minute without purchased credits; card-on-file requirement unverified. NVIDIA logs data for security and product improvement; do not send confidential RTL or personal data."
+    },
+    {
+      "id": "openrouter-nvidia-nemotron-3-5-rerank-8b-free",
+      "provider": "OpenRouter / NVIDIA",
+      "offer": "Nemotron 3.5 Rerank 8B free multimodal document reranking",
+      "kind": "free-tier",
+      "amount": "Free ranked documents ($0)",
+      "agent_ids": [
+        "opencode",
+        "pi",
+        "hermes",
+        "kilo"
+      ],
+      "access": [
+        "api"
+      ],
+      "url": "https://openrouter.ai/nvidia/nemotron-3.5-rerank-8b:free",
+      "expires": null,
+      "status": "active",
+      "verified_at": "2026-11-22",
+      "notes": "Specialized relevance reranker, NOT chat/text generation. Accepts text and image input, returns ranked documents; 32,768-token context. Released Oct 21, not new this week. Requires OpenRouter API key, no credit purchase for :free; standard free request caps apply, exact provider throughput/card requirements unverified. NVIDIA logs requests for security and improvement; do not send proprietary documents."
     }
   ]
 }
