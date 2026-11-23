@@ -71,6 +71,44 @@ def test_web_video_passes_references_in_order(target, module, function, count, t
     assert json.loads(capsys.readouterr().out)["files"] == ["video.mp4"]
 
 
+def test_flow_image_passes_settings_and_reports_all_downloads(tmp_path, monkeypatch, capsys):
+    reference = tmp_path / "reference.png"
+    reference.write_bytes(b"\x89PNG\r\n\x1a\nreference")
+
+    def generate(kind, prompt, directory, **settings):
+        assert (kind, prompt) == ("image", "Paint this in blue")
+        assert settings == {
+            "project": "Library", "model": "Nano Banana 2.1", "aspect_ratio": "4:3",
+            "quality": "High", "count": 2, "references": [reference], "timeout_s": 720,
+        }
+        return {"ok": True, "files": [str(directory / f"{index}.png") for index in (1, 2)]}
+
+    monkeypatch.setattr(web_flow, "generate", generate)
+    assert cli.main(["web", "image", "flow", "--prompt", "Paint this in blue", "--json", "--out", str(tmp_path),
+                     "--project", "Library", "--model", "Nano Banana 2.1", "--aspect", "4:3", "--quality", "High",
+                     "--count", "2", "--reference", str(reference)]) == 0
+    assert len(json.loads(capsys.readouterr().out)["files"]) == 2
+
+
+def test_flow_music_passes_song_brief_to_browser(tmp_path, monkeypatch):
+    monkeypatch.setattr(web, "open_target", lambda target: (True, "", ""))
+    monkeypatch.setattr(web, "release", lambda target: None)
+
+    def run_script(target, script, timeout):
+        assert target == "flow-music"
+        config = json.loads(script.split("const cfg = ")[1].split(";\n", 1)[0])
+        assert config["song"] == 2
+        assert "Create 2 song versions" in config["prompt"]
+        assert "Musical style: folk" in config["prompt"]
+        assert "Target duration: 30 seconds" in config["prompt"]
+        assert "Use these lyrics verbatim:\nLeaves float by" in config["prompt"]
+        return {"ok": True, "path": "song.mp3"}
+
+    monkeypatch.setattr(web, "run_script", run_script)
+    assert cli.main(["web", "audio", "flow-music", "--prompt", "Write a refrain", "--out", str(tmp_path),
+                     "--lyrics", "Leaves float by", "--style", "folk", "--length", "30", "--song", "2"]) == 0
+
+
 @pytest.mark.parametrize(("kind", "flag_values", "message"), [
     ("video", ["missing.png"], "Reference image file not found"),
     ("video", ["invalid.png"], "does not match its declared format"),
