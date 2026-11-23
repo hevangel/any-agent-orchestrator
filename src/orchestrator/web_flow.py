@@ -529,9 +529,9 @@ SCRIPT = r"""async page => {
         // Flow extends the last clip in place. The clip count can stay the same.
         await page.waitForFunction(before => {
           const timecode = document.querySelector('.duration-timecode-value')?.textContent.trim();
-          return Boolean(timecode && timecode > before);
+          const finished = document.querySelector('flow-scene-timeline .clip.is-last button[aria-label="Redo extend"]');
+          return Boolean(timecode && timecode > before && finished);
         }, before, { timeout: cfg.timeoutMs });
-        await clips.last().getByRole('button', { name: 'Redo extend', exact: true }).waitFor({ timeout: 10000 });
         const timecode = (await duration.innerText()).trim();
         const url = page.url();
         await button('Done editing scene').click({ timeout: 10000 });
