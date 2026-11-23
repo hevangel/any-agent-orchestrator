@@ -193,7 +193,7 @@ uv run aao web video flow --project P --start-frame entrance.png --end-frame off
 
 Use `--count` from 1 to 4 and `--aspect` for either media type. `--quality` selects image quality or accepts a video resolution as an alias for `--resolution`. `--duration` requests seconds and fails before generation if Flow cannot provide that duration with the chosen settings. Repeat `--reference` to attach up to three local images, or `--character` to attach saved characters by name with their saved voices. Frames use project image names or indexes and require video generation in an existing project. Ingredients and frames use separate composer modes.
 
-`add-to-scene` accepts an exact scene name or `"New scene"`. `save-frame` saves the chosen playhead position as an image in the project. `--clip` selects a clip in the scene and `--at` is the percentage through that clip. `extend` uses Flow's Scenebuilder Extend mode when the selected clip and account support it.
+`add-to-scene` accepts an exact scene name or `"New scene"`. `save-frame` saves the chosen playhead position as an image in the project. `--clip` selects a clip in the scene and `--at` is the percentage through that clip. `extend` uses Flow's Scenebuilder Extend mode on the last clip and reports the longer duration when Flow finishes.
 
 ### Page notes
 

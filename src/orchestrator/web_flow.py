@@ -520,17 +520,22 @@ SCRIPT = r"""async page => {
           await page.getByText('Frame saved', { exact: true }).waitFor({ timeout: 10000 });
           return out({ ok: true, url: page.url(), clip: cfg.clip, at: cfg.at });
         }
-        await clips.first().waitFor({ timeout: 10000 });
-        const before = await clips.count();
+        const duration = page.locator('.duration-timecode-value');
+        const before = (await duration.innerText({ timeout: 10000 })).trim();
         await page.getByRole('button', { name: 'Add clip', exact: true }).click({ timeout: 5000 });
         await page.getByRole('menuitem', { name: 'Extend', exact: true }).click({ timeout: 5000 });
         await page.getByRole('textbox', { name: 'What happens next?', exact: true }).fill(cfg.prompt);
         await button('Start generation').click({ timeout: 5000 });
-        await page.locator('flow-scene-timeline .clip:not(.extend-composing):has(flow-thumbnail-strip)')
-          .nth(before).waitFor({ timeout: cfg.timeoutMs });
+        // Flow extends the last clip in place. The clip count can stay the same.
+        await page.waitForFunction(before => {
+          const timecode = document.querySelector('.duration-timecode-value')?.textContent.trim();
+          return Boolean(timecode && timecode > before);
+        }, before, { timeout: cfg.timeoutMs });
+        await clips.last().getByRole('button', { name: 'Redo extend', exact: true }).waitFor({ timeout: 10000 });
+        const timecode = (await duration.innerText()).trim();
         const url = page.url();
         await button('Done editing scene').click({ timeout: 10000 });
-        return out({ ok: true, url });
+        return out({ ok: true, url, duration: timecode });
       }
       case 'options': {
         await openProject(await resolveProject(cfg.project));
