@@ -80,11 +80,16 @@ def cmd_prices(args):
         print(json.dumps(pricing.PriceBook().lookup(args.model), indent=1))
 
 
-def _video_reference_options(target, paths):
+FLOW_MEDIA_OPTIONS = ("project", "model", "resolution", "quality", "duration", "count",
+                      "characters", "start_frame", "end_frame", "aspect")
+FLOW_MUSIC_OPTIONS = ("lyrics", "style", "length", "instrumental", "song")
+
+
+def _web_reference_options(kind, target, paths):
     limit = VIDEO_REFERENCE_LIMITS[target]
     if len(paths) > limit:
         count = "one image reference" if limit == 1 else f"up to {limit} image references"
-        raise ValueError(f"web video {target} accepts {count}")
+        raise ValueError(f"web {kind} {target} accepts {count}")
     references = []
     for name in paths:
         path = Path(name).expanduser().absolute()
@@ -112,8 +117,16 @@ def _web_media(args):
     try:
         if args.all or target not in allowed[kind]:
             raise ValueError(f"web {kind} needs one target: {', '.join(allowed[kind])}")
+        flow_options = {name: getattr(args, name) for name in FLOW_MEDIA_OPTIONS if getattr(args, name) is not None}
+        if "aspect" in flow_options:
+            flow_options["aspect_ratio"] = flow_options.pop("aspect")
+        if flow_options and target != "flow":
+            raise ValueError("These generation settings apply to web image or video flow")
+        music_options = {name: getattr(args, name) for name in FLOW_MUSIC_OPTIONS if getattr(args, name) is not None}
+        if music_options and target != "flow-music":
+            raise ValueError("These song settings apply to web audio flow-music")
         if any((args.chat, args.file, args.repo, args.mode, args.expect)):
-            raise ValueError("Chat options apply to web ask. Use --reference to attach an image to web video")
+            raise ValueError("Chat options apply to web ask. Use --reference for supported media targets")
         prompt = (args.prompt or "").strip()
         if not prompt:
             raise ValueError(f"web {kind} requires --prompt")
@@ -122,15 +135,15 @@ def _web_media(args):
             raise ValueError("--timeout must be positive")
         reference_options = {}
         if args.reference:
-            if kind != "video":
-                raise ValueError("--reference applies to web video")
-            reference_options = _video_reference_options(target, args.reference)
+            if kind != "video" and (kind, target) != ("image", "flow"):
+                raise ValueError("--reference applies to web video and web image flow")
+            reference_options = _web_reference_options(kind, target, args.reference)
         directory = Path(args.out).expanduser().resolve() / f"{target}-{kind}-{uuid4().hex[:12]}"
         directory.mkdir(parents=True, exist_ok=False)
         if kind == "audio":
-            result = audio_drivers[target](prompt, directory, timeout_s=timeout)
+            result = audio_drivers[target](prompt, directory, timeout_s=timeout, **music_options)
         elif target == "flow":
-            result = web_flow.generate(kind, prompt, directory, timeout_s=timeout, **reference_options)
+            result = web_flow.generate(kind, prompt, directory, timeout_s=timeout, **reference_options, **flow_options)
         elif target == "grok":
             driver = web_grok.generate_image if kind == "image" else web_grok.generate_video
             result = driver(prompt, download_dir=directory, timeout_s=timeout, **reference_options)
@@ -166,7 +179,10 @@ def cmd_web(args):
     if args.action in ("image", "video", "audio"):
         return _web_media(args)
     if args.reference:
-        print("--reference applies to web video", file=sys.stderr)
+        print("--reference applies to web video and web image flow", file=sys.stderr)
+        return 1
+    if any(getattr(args, name) is not None for name in FLOW_MEDIA_OPTIONS + FLOW_MUSIC_OPTIONS):
+        print("Flow generation settings apply to web image, video or audio", file=sys.stderr)
         return 1
     if args.action in ("sessions", "read"):
         from orchestrator import web_autoclaw
@@ -588,13 +604,36 @@ def cmd_flow(args):
     elif args.op == "new-character":
         result = web_flow.create_character(args.project, args.name, prompt=args.prompt, image=args.image,
                                            info=args.info, voice=args.voice, **kw)
+    elif args.op in ("read-character", "edit-character"):
+        kw.update(project=args.project, character=args.character)
+        if args.op == "edit-character":
+            kw.update(name=args.name, info=args.info, voice=args.voice, imagePrompt=args.prompt)
+            if all(value is None for value in (args.name, args.info, args.voice, args.prompt)):
+                print("Provide --name, --info, --voice or --prompt to edit the character", file=sys.stderr)
+                return 1
+            if any(value is not None and not value.strip() for value in (args.name, args.voice, args.prompt)):
+                print("--name, --voice and --prompt require non-empty values", file=sys.stderr)
+                return 1
+        result = web_flow.session(args.op, **kw)
+    elif args.op == "add-to-scene":
+        result = web_flow.session(args.op, project=args.project, media=args.media, scene=args.scene, **kw)
+    elif args.op == "save-frame":
+        if args.clip < 1 or not 0 <= args.at < 100:
+            print("--clip must be positive and --at must be between 0 and 100 percent", file=sys.stderr)
+            return 1
+        result = web_flow.session(args.op, project=args.project, media=args.media, clip=args.clip, at=args.at, **kw)
+    elif args.op == "extend":
+        if not args.prompt.strip():
+            print("--prompt must describe what happens next", file=sys.stderr)
+            return 1
+        result = web_flow.session(args.op, project=args.project, media=args.media, prompt=args.prompt, **kw)
     elif args.op == "delete":
         if not args.yes:
             print("  NO deleting a project is permanent (its clips, ingredients and prompts); add --yes")
             return 1
         result = web_flow.session("delete", project=args.project, **kw)
     else:
-        if args.op in ("read", "options"):
+        if args.op in ("read", "options", "characters"):
             kw["project"] = args.project
         if args.op == "read":
             kw["mediaType"] = args.type
@@ -608,8 +647,12 @@ def cmd_flow(args):
         print(f"  NO {result.get('reason') or result.get('error')}")
         for c in result.get("choices") or []:
             print(f"      {c}")
-        if args.op == "new-character" and result.get("url"):
+        if args.op in ("new-character", "edit-character", "extend", "save-frame") and result.get("url"):
             print(f"      Flow page: {result['url']}")
+    elif args.op == "add-to-scene":
+        print(f"  added video to {result['scene']}")
+    elif args.op in ("extend", "save-frame"):
+        print(f"  {result['url']}")
     for p in result.get("projects") or []:
         print(f"  {p['title'][:40]:40} {p['id']}")
     if result.get("title") is not None and result.get("url"):
@@ -623,15 +666,21 @@ def cmd_flow(args):
     if result.get("character"):
         character = result["character"]
         print(f"  character {character['name']}  {character['url']}")
+        if args.op == "read-character":
+            print(f"  voice {character['voice'] or '(none)'}")
+            print(f"  info {character['info'] or '(empty)'}")
+            print(f"  image {character['image'] or '(none)'}")
+    for character in result.get("characters") or []:
+        print(f"  {character['name']}")
     if result.get("deleted"):
         print(f"  deleted project {result['deleted']}")
     if args.op == "options" and result.get("ok"):
-        for r in result.get("confirm") or []:
-            print(f"  confirm before generating: {r['label']}{' (current)' if r['selected'] else ''}  {r['detail']}")
-        for g in result.get("toggles") or []:
-            print("  " + "  ".join(f"[{t['label']}]" if t["selected"] else t["label"] for t in g))
-        for d in result.get("dropdowns") or []:
-            print(f"  model {d['current']} <- {' | '.join(d['choices'])}")
+        for mode, options in result["modes"].items():
+            print(f"  {mode.capitalize()}")
+            for group in options["toggles"]:
+                print("    " + "  ".join(f"[{t['label']}]" if t["selected"] else t["label"] for t in group))
+            for model in options["dropdowns"]:
+                print(f"    model {model['current']} <- {' | '.join(model['choices'])}")
     return 0 if result.get("ok") else 1
 
 
@@ -744,7 +793,22 @@ def main(argv=None):
     p.add_argument("--chat", help="ask: continue a chat (id, URL or title); AutoClaw ask/read require an exact title")
     p.add_argument("--file", action="append", help="ask: attach a local file (repeatable; gemini; zip a folder)")
     p.add_argument("--reference", "--image", action="append", metavar="IMAGE",
-                   help="video: attach a local PNG, JPEG, or WebP (8 MiB each; repeat for Flow or Muse)")
+                   help="video and Flow image: attach a PNG, JPEG, or WebP (8 MiB each)")
+    p.add_argument("--project", help="Flow: use this project ID, URL or exact title")
+    p.add_argument("--model", help="Flow: model name from aao flow options")
+    p.add_argument("--aspect", help="Flow: image or video aspect ratio")
+    p.add_argument("--resolution", help="Flow: video resolution, e.g. 720p")
+    p.add_argument("--quality", help="Flow: image quality, or an alias for video resolution")
+    p.add_argument("--duration", type=int, help="Flow: video duration in seconds, where available")
+    p.add_argument("--count", type=int, help="Flow: number of results, 1 to 4")
+    p.add_argument("--character", dest="characters", action="append", help="Flow: attach a saved character by name (repeatable)")
+    p.add_argument("--start-frame", help="Flow: project image name or media index for a video's first frame")
+    p.add_argument("--end-frame", help="Flow: project image name or media index for a video's last frame")
+    p.add_argument("--lyrics", help="Flow Music: lyrics to include in the song brief")
+    p.add_argument("--style", help="Flow Music: style to include in the song brief")
+    p.add_argument("--length", type=int, help="Flow Music: target length in seconds")
+    p.add_argument("--instrumental", action="store_true", default=None, help="Flow Music: request a song without vocals")
+    p.add_argument("--song", type=int, help="Flow Music: request versions and download this 1-based result")
     p.add_argument("--repo", help="ask: attach a GitHub repository or branch URL (gemini 'Import code')")
     p.add_argument("--mode", help="ask: composer mode, e.g. gemini chat|task")
     p.add_argument("--timeout", type=int, help="seconds to wait (ask: 120, image/video/audio: 720)")
@@ -860,9 +924,34 @@ def main(argv=None):
     source.add_argument("--image", help="upload a local portrait image")
     o.add_argument("--info", help="character personality or background")
     o.add_argument("--voice", help="Flow preset voice name")
+    o = ops.add_parser("characters", help="list a project's saved characters")
+    o.add_argument("project")
+    o = ops.add_parser("read-character", help="read a character's name, image, info and voice")
+    o.add_argument("project")
+    o.add_argument("character", help="character ID, editor URL or exact name")
+    o = ops.add_parser("edit-character", help="update a saved character")
+    o.add_argument("project")
+    o.add_argument("character", help="character ID, editor URL or exact name")
+    o.add_argument("--name")
+    o.add_argument("--info")
+    o.add_argument("--voice")
+    o.add_argument("--prompt", help="regenerate the portrait from this edit prompt (may spend credits)")
+    o = ops.add_parser("add-to-scene", help="append a project video to a named scene")
+    o.add_argument("project")
+    o.add_argument("media", help="video index or exact title")
+    o.add_argument("scene", help="exact name, or 'New scene'")
+    o = ops.add_parser("save-frame", help="save a still from a video or scene to the project")
+    o.add_argument("project")
+    o.add_argument("media", help="video or scene index or exact title")
+    o.add_argument("--clip", type=int, default=1, help="1-based clip within the scene")
+    o.add_argument("--at", type=float, default=0, help="position as a percentage through the clip, from 0 to under 100")
+    o = ops.add_parser("extend", help="extend a video or scene in Scenebuilder (spends credits)")
+    o.add_argument("project")
+    o.add_argument("media", help="video or scene index or exact title")
+    o.add_argument("--prompt", required=True, help="describe what happens next")
     o = ops.add_parser("read", help="media in a project, newest first")
     o.add_argument("project", help="id, URL or exact title")
-    o.add_argument("--type", choices=["video", "image"], help="only this media type")
+    o.add_argument("--type", choices=["video", "image", "scene", "character", "collection"], help="only this media type")
     o = ops.add_parser("download", help="save one media (original size is free; --quality 1080p/4k spend credits)")
     o.add_argument("project")
     o.add_argument("media", help="index from `read` or exact media name")
@@ -871,7 +960,7 @@ def main(argv=None):
     o = ops.add_parser("upload", help="upload reference images/videos into a project (free)")
     o.add_argument("project")
     o.add_argument("files", nargs="+", help="local image or video files")
-    o = ops.add_parser("options", help="the agent's settings and every choice they offer (reads only; never saves)")
+    o = ops.add_parser("options", help="read live Image and Video settings and model choices")
     o.add_argument("--project", help="project to open (default: the first one)")
     o = ops.add_parser("delete", help="delete a project permanently")
     o.add_argument("project")
