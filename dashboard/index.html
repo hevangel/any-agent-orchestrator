@@ -259,13 +259,23 @@ function cloudCard(m) {
 function renderQuotas(data) {
   const sec = $("#tab-quotas");
   if (!data || data.missing) return missing(sec, "quota", "uv run aao collect quotas");
-  const cards = data.accounts.map(a => {
+  // Antigravity first; other accounts keep the collector's order.
+  const FIRST = ["agy"];
+  const rank = a => FIRST.includes(a.provider) ? FIRST.indexOf(a.provider) : FIRST.length;
+  const accounts = data.accounts.map((a, i) => [a, i]).sort(([a, i], [b, j]) => rank(a) - rank(b) || i - j).map(([a]) => a);
+  // Within each model group, shorter windows (5-hour) above longer ones (weekly).
+  const ordered = ws => {
+    const scopes = [...new Set(ws.map(w => w.scope || ""))];
+    return ws.map((w, i) => [w, i]).sort(([a, i], [b, j]) =>
+      scopes.indexOf(a.scope || "") - scopes.indexOf(b.scope || "") || (a.seconds ?? Infinity) - (b.seconds ?? Infinity) || i - j).map(([w]) => w);
+  };
+  const cards = accounts.map(a => {
     const stale = a.retrieved_at && Date.now() - new Date(a.retrieved_at).getTime() > 3 * 3600e3;
     return h("div", { class: "card" },
       h("h3", {}, a.provider, a.plan ? h("span", { class: "chip" }, a.plan) : null),
       h("div", { class: "sub" }, statusBadge(stale ? "stale" : a.status), `  ·  ${ago(a.retrieved_at)} · via ${a.source}`, a.account ? ` · ${a.account}` : ""),
       a.error ? h("div", { class: "err" }, a.error) : null,
-      (a.windows || []).map(w => {
+      ordered(a.windows || []).map(w => {
         const warn = w.runs_out_before_reset;
         const usedPct = w.used_pct == null ? null : w.used_pct;
         const label = (w.scope ? w.scope + " · " : "") + w.name;
@@ -277,7 +287,7 @@ function renderQuotas(data) {
   const errs = Object.entries(data.errors || {}).map(([k, v]) => h("div", { class: "err" }, `${k}: ${v}`));
   fill(sec, 
     h("p", { class: "meta" }, "Used share of each subscription window; the run-out warning projects the current burn rate to the reset time."),
-    cards.length ? h("div", { class: "grid" }, cards) : h("p", { class: "empty" }, "No quota sources reported. Install clanker-usage (uv tool install clanker-usage) and/or quota-cli (cargo install quota-cli)."),
+    cards.length ? h("div", { class: "grid" }, cards) : h("p", { class: "empty" }, "No quota sources reported. Quotas are read from installed agents' /usage screens through herdr; quota-cli (cargo install quota-cli) adds Copilot and Grok."),
     errs.length ? h("details", {}, h("summary", {}, "Collector messages"), errs) : null);
 }
 

@@ -46,13 +46,9 @@ def test_cloud_normalizers():
     assert cursor[0]["state"] == "running"
 
 
-def test_quota_normalizers_agree():
-    clanker = quotas.from_clanker([{"schema": "usage-v1", "provider": "zcode", "account": "a", "plan": "lite", "status": "live",
-                                    "error": None, "retrieved_at": "2026-11-11T00:00:00Z", "balance": None,
-                                    "windows": [{"name": "5-hour", "seconds": 18000, "scope": None, "used_pct": 20, "resets_at": None}]}])
+def test_quota_cli_normalizer():
     qcli = quotas.from_quota_cli([{"provider": "Antigravity", "accountLabel": "me",
                                    "windows": [{"label": "5h", "remainingPercent": 80, "resetAt": 1800000000}]}])
-    assert clanker[0]["windows"][0]["remaining_pct"] == 80
     assert qcli[0]["provider"] == "agy"
     assert qcli[0]["windows"][0]["used_pct"] == 20 and qcli[0]["windows"][0]["seconds"] == 18000
 

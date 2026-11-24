@@ -40,7 +40,7 @@ All herdr control is a deterministic procedure in `src/orchestrator/drivers.py`:
 | arguments | hermes (`-p <profile>`) | `HOME=<profile name>` |
 | none known | kiro, antigravity, pi, muse | only the default login |
 
-`accounts.choose(agent, host)` (CLI: `uv run aao accounts --agent claude --host local`) picks the next account: any account with a quota window under 10% remaining goes last; then free before paid before API-billed, then `PRIORITY`, then the most quota left. Quotas are read per account by running clanker-usage with that account's credential directory (claude, codex). Every driver mode launches through `accounts.launch_spec`, so the e2e tests exercise each account the way dispatch will. Token-usage rows are not yet split by account.
+`accounts.choose(agent, host)` (CLI: `uv run aao accounts --agent claude --host local`) picks the next account: any account with a quota window under 10% remaining goes last; then free before paid before API-billed, then `PRIORITY`, then the most quota left. Quotas are read per account from each CLI's own quota screen, launched with that account's home through `accounts.launch_spec`. Every driver mode launches through `accounts.launch_spec`, so the e2e tests exercise each account the way dispatch will. Token-usage rows are not yet split by account.
 
 ## Cloud agents (AI labs)
 

@@ -154,7 +154,7 @@ def parse_antigravity(screen, now=None):
     return windows
 
 
-def read_quota(cli, account=None, *, machine=None, cwd=None, timeout=30):
+def read_quota(cli, account=None, *, machine=None, cwd=None, timeout=60):
     """Return {accounts, error, screen}. Supports saved herdr machines and account homes.
 
     Startup handling uses the same literal startup_forms as the CLI driver. A login

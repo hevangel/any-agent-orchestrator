@@ -1,4 +1,3 @@
-import json
 from datetime import datetime, timezone
 
 import pytest
@@ -101,36 +100,8 @@ def test_kiro_launches_chat_before_permission_arguments(monkeypatch):
     assert result["accounts"][0]["plan"] == "KIRO PRO MAX"
 
 
-@pytest.mark.parametrize("status", ["live", "cached"])
-def test_windows_cursor_fallback_uses_cli_config_without_mutating_environment(monkeypatch, status):
-    monkeypatch.setattr(quotas.platform, "system", lambda: "Windows")
-    monkeypatch.setattr(quotas.shutil, "which", lambda _: "/collector")
-    monkeypatch.setenv("APPDATA", "C:/native-config")
-    captured = []
-
-    def run(args, **kwargs):
-        captured.append((args, kwargs["env"]))
-        return True, json.dumps({"schema": "usage-v1", "provider": "cursor", "status": status,
-                                 "windows": [{"name": "billing cycle", "used_pct": 12.5}]}), None
-
-    monkeypatch.setattr(quotas, "_run", run)
-    tool_env = {"PATH": "/bin"}
-    old = {"provider": "cursor", "status": "unavailable", "windows": []}
-    result = quotas.collect_cursor_windows([old], {}, tool_env)
-    assert captured[0][1]["XDG_CONFIG_HOME"] == "C:/native-config"
-    assert "XDG_CONFIG_HOME" not in tool_env
-    assert result[0]["windows"][0]["remaining_pct"] == 87.5
-    assert old not in result
-    assert quotas.collect_cursor_windows(result, {}, tool_env) == result
-    assert len(captured) == 1
-    assert quotas.collect_cursor_windows([], {}, {"XDG_CONFIG_HOME": "/explicit"}) == []
-    assert len(captured) == 1
-
-
 def test_external_collectors_never_receive_sslkeylogfile(monkeypatch):
     monkeypatch.setenv("SSLKEYLOGFILE", "unsafe-pipe")
-    monkeypatch.setattr(quotas, "collect_configured_accounts", lambda errors: [])
-    monkeypatch.setattr(quotas, "collect_cursor_windows", lambda rows, errors, env: rows)
     monkeypatch.setattr(quotas, "collect_screen_accounts", lambda rows, errors: rows)
     monkeypatch.setattr(quotas, "from_codex_logs", lambda: [])
     captured = []
@@ -141,4 +112,13 @@ def test_external_collectors_never_receive_sslkeylogfile(monkeypatch):
 
     monkeypatch.setattr(quotas, "_run", run)
     quotas.collect()
-    assert len(captured) == 2 and all("SSLKEYLOGFILE" not in env for env in captured)
+    assert len(captured) == 1 and all("SSLKEYLOGFILE" not in env for env in captured)
+
+
+def test_deepseek_and_devin_are_never_reported(monkeypatch):
+    rows = [{"provider": p, "windows": []} for p in ("deepseek", "devin", "copilot")]
+    monkeypatch.setattr(quotas, "_run", lambda args, **kw: (True, "[]", None))
+    monkeypatch.setattr(quotas, "from_quota_cli", lambda records: rows)
+    monkeypatch.setattr(quotas, "collect_screen_accounts", lambda rows, errors: rows)
+    monkeypatch.setattr(quotas, "from_codex_logs", lambda: [])
+    assert [a["provider"] for a in quotas.collect()["accounts"]] == ["copilot"]

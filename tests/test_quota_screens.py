@@ -120,7 +120,7 @@ def test_unsupported_agent_never_launches(monkeypatch):
 
 
 @pytest.mark.parametrize("status", ["live", "cached"])
-def test_collector_fills_missing_accounts_without_replacing_live_sources(monkeypatch, status):
+def test_collector_screens_replace_quota_cli_rows_for_every_account(monkeypatch, status):
     monkeypatch.setattr("orchestrator.config.Settings", lambda: Settings(env={"AAO_QUOTA_SCREEN_AGENTS": "claude,codex"}))
     monkeypatch.setattr("orchestrator.config.accounts", lambda: [Account("work", "claude", home="/custom")])
     monkeypatch.setattr(quotas.shutil, "which", lambda _: "/bin/agent")
@@ -135,8 +135,9 @@ def test_collector_fills_missing_accounts_without_replacing_live_sources(monkeyp
     failed = {"provider": "claude", "windows": [], "status": "unavailable"}
     errors = {}
     result = quotas.collect_screen_accounts([live, failed], errors)
-    assert calls == [("claude", None), ("claude", "work")]
-    assert live in result and failed not in result and not errors
+    assert calls == [("claude", None), ("claude", "work"), ("codex", None)]
+    assert live not in result and failed not in result and not errors
+    assert {(a["provider"], a["aao_account"]) for a in result} == {("claude", None), ("claude", "work"), ("codex", None)}
 
 
 def test_collector_screen_opt_out(monkeypatch):

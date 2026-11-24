@@ -30,7 +30,7 @@ One page, six tabs, refreshed in the background:
 
 Nothing leaves your computer: the dashboard reads the agents' own log files and asks each provider for its own quota. Remote machines are read over SSH and need only Python; nothing is installed on them.
 
-For quota numbers, install one or both of: `uv tool install clanker-usage` (Claude, Codex, Cursor, Gemini, Antigravity, Muse, Z.ai and more) and `cargo install quota-cli` (adds Copilot, Grok, Kiro). Codex quotas also come from its own logs.
+Quota numbers are read from each installed agent's own `/usage` or `/status` screen through herdr (Claude, Codex, Cursor, Kiro, Antigravity). Optionally `cargo install quota-cli` adds Copilot, Grok and Kimi. Codex quotas also come from its own logs.
 
 ## Where agents run
 

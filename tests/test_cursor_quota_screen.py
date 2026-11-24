@@ -41,11 +41,11 @@ def test_cursor_does_not_invent_a_quota(screen):
 
 
 @pytest.mark.parametrize("success", [True, False])
-def test_cursor_native_screen_is_preferred_with_api_fallback(monkeypatch, success):
+def test_quota_screen_replaces_quota_cli_with_fallback(monkeypatch, success):
     monkeypatch.setattr("orchestrator.config.Settings", lambda: Settings(env={"AAO_QUOTA_SCREEN_AGENTS": "cursor"}))
     monkeypatch.setattr("orchestrator.config.accounts", lambda: [])
     monkeypatch.setattr(quotas.shutil, "which", lambda _: "/agent")
-    old = {"provider": "cursor", "status": "live", "source": "clanker-usage", "windows": [{}]}
+    old = {"provider": "cursor", "status": "live", "source": "quota-cli", "windows": [{}]}
     native = {"provider": "cursor", "status": "live", "source": "cursor-screen", "windows": [{}]}
     calls = []
 

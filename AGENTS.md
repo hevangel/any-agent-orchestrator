@@ -101,7 +101,7 @@ uv run aao prices validate | lookup <model>
 uv run aao free-tokens validate
 ```
 
-Quota sources are optional external CLIs: `uv tool install clanker-usage`, `cargo install quota-cli`.
+Quotas are read from each agent's own `/usage` or `/status` screen through herdr. `cargo install quota-cli` optionally adds Copilot, Grok and Kimi.
 
 ### CLI agents (herdr)
 
