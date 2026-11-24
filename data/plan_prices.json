@@ -1,0 +1,267 @@
+{
+ "schema": "plan-prices-v1",
+ "notes": "Monthly subscription prices of individual plans, from the official pricing pages (aao prices plans update; never edited by hand). A changed price is a new entry with a later effective_from.",
+ "plans": [
+  {
+   "vendor": "chatgpt",
+   "plan": "Plus",
+   "monthly": 20.0,
+   "currency": "USD",
+   "effective_from": "2020-01-01",
+   "source_url": "https://help.openai.com/en/articles/6950777-what-is-chatgpt-plus",
+   "verified_at": "2026-11-24",
+   "verified_by": "aao prices plans update (chatgpt-chatgpt_plus)"
+  },
+  {
+   "vendor": "chatgpt",
+   "plan": "Pro 100",
+   "monthly": 100.0,
+   "currency": "USD",
+   "effective_from": "2020-01-01",
+   "source_url": "https://help.openai.com/en/articles/9793128-what-is-chatgpt-pro",
+   "verified_at": "2026-11-24",
+   "verified_by": "aao prices plans update (chatgpt-chatgpt_pro)"
+  },
+  {
+   "vendor": "chatgpt",
+   "plan": "Pro 200",
+   "monthly": 200.0,
+   "currency": "USD",
+   "effective_from": "2020-01-01",
+   "source_url": "https://help.openai.com/en/articles/9793128-what-is-chatgpt-pro",
+   "verified_at": "2026-11-24",
+   "verified_by": "aao prices plans update (chatgpt-chatgpt_pro)"
+  },
+  {
+   "vendor": "chatgpt",
+   "plan": "Pro 500",
+   "monthly": 500.0,
+   "currency": "USD",
+   "effective_from": "2020-01-01",
+   "source_url": "https://help.openai.com/en/articles/9793128-what-is-chatgpt-pro",
+   "verified_at": "2026-11-24",
+   "verified_by": "aao prices plans update (chatgpt-chatgpt_pro)"
+  },
+  {
+   "vendor": "claude",
+   "plan": "Free",
+   "monthly": 0.0,
+   "currency": "USD",
+   "effective_from": "2020-01-01",
+   "source_url": "https://claude.com/pricing",
+   "verified_at": "2026-11-24",
+   "verified_by": "aao prices plans update (claude-claude)"
+  },
+  {
+   "vendor": "claude",
+   "plan": "Pro",
+   "monthly": 20.0,
+   "currency": "USD",
+   "effective_from": "2020-01-01",
+   "source_url": "https://claude.com/pricing",
+   "verified_at": "2026-11-24",
+   "verified_by": "aao prices plans update (claude-claude)"
+  },
+  {
+   "vendor": "claude",
+   "plan": "Max",
+   "monthly": 100.0,
+   "currency": "USD",
+   "effective_from": "2020-01-01",
+   "source_url": "https://claude.com/pricing",
+   "verified_at": "2026-11-24",
+   "verified_by": "aao prices plans update (claude-claude)"
+  },
+  {
+   "vendor": "claude",
+   "plan": "Ultra",
+   "monthly": 200.0,
+   "currency": "USD",
+   "effective_from": "2020-01-01",
+   "source_url": "https://claude.com/pricing",
+   "verified_at": "2026-11-24",
+   "verified_by": "aao prices plans update (claude-claude)"
+  },
+  {
+   "vendor": "copilot",
+   "plan": "Free",
+   "monthly": 0.0,
+   "currency": "USD",
+   "effective_from": "2020-01-01",
+   "source_url": "https://github.com/features/copilot/plans",
+   "verified_at": "2026-11-24",
+   "verified_by": "aao prices plans update (copilot-copilot)"
+  },
+  {
+   "vendor": "copilot",
+   "plan": "Pro",
+   "monthly": 10.0,
+   "currency": "USD",
+   "effective_from": "2020-01-01",
+   "source_url": "https://github.com/features/copilot/plans",
+   "verified_at": "2026-11-24",
+   "verified_by": "aao prices plans update (copilot-copilot)"
+  },
+  {
+   "vendor": "copilot",
+   "plan": "Pro+",
+   "monthly": 39.0,
+   "currency": "USD",
+   "effective_from": "2020-01-01",
+   "source_url": "https://github.com/features/copilot/plans",
+   "verified_at": "2026-11-24",
+   "verified_by": "aao prices plans update (copilot-copilot)"
+  },
+  {
+   "vendor": "copilot",
+   "plan": "Max",
+   "monthly": 100.0,
+   "currency": "USD",
+   "effective_from": "2020-01-01",
+   "source_url": "https://github.com/features/copilot/plans",
+   "verified_at": "2026-11-24",
+   "verified_by": "aao prices plans update (copilot-copilot)"
+  },
+  {
+   "vendor": "cursor",
+   "plan": "Free",
+   "monthly": 0.0,
+   "currency": "USD",
+   "effective_from": "2020-01-01",
+   "source_url": "https://cursor.com/pricing",
+   "verified_at": "2026-11-24",
+   "verified_by": "aao prices plans update (cursor-cursor)"
+  },
+  {
+   "vendor": "cursor",
+   "plan": "Plus",
+   "monthly": 8.0,
+   "currency": "USD",
+   "effective_from": "2020-01-01",
+   "source_url": "https://cursor.com/pricing",
+   "verified_at": "2026-11-24",
+   "verified_by": "aao prices plans update (cursor-cursor)"
+  },
+  {
+   "vendor": "cursor",
+   "plan": "Premium",
+   "monthly": 30.0,
+   "currency": "USD",
+   "effective_from": "2020-01-01",
+   "source_url": "https://cursor.com/pricing",
+   "verified_at": "2026-11-24",
+   "verified_by": "aao prices plans update (cursor-cursor)"
+  },
+  {
+   "vendor": "cursor",
+   "plan": "Super",
+   "monthly": 100.0,
+   "currency": "USD",
+   "effective_from": "2020-01-01",
+   "source_url": "https://cursor.com/pricing",
+   "verified_at": "2026-11-24",
+   "verified_by": "aao prices plans update (cursor-cursor)"
+  },
+  {
+   "vendor": "cursor",
+   "plan": "Ultra",
+   "monthly": 200.0,
+   "currency": "USD",
+   "effective_from": "2020-01-01",
+   "source_url": "https://cursor.com/pricing",
+   "verified_at": "2026-11-24",
+   "verified_by": "aao prices plans update (cursor-cursor)"
+  },
+  {
+   "vendor": "google",
+   "plan": "Plus",
+   "monthly": 13.99,
+   "currency": "CAD",
+   "effective_from": "2020-01-01",
+   "source_url": "https://one.google.com/about/plans?hl=en-US",
+   "verified_at": "2026-11-24",
+   "verified_by": "aao prices plans update (google-google)"
+  },
+  {
+   "vendor": "google",
+   "plan": "Pro",
+   "monthly": 26.99,
+   "currency": "CAD",
+   "effective_from": "2020-01-01",
+   "source_url": "https://one.google.com/about/plans?hl=en-US",
+   "verified_at": "2026-11-24",
+   "verified_by": "aao prices plans update (google-google)"
+  },
+  {
+   "vendor": "grok",
+   "plan": "SuperGrok",
+   "monthly": 30.0,
+   "currency": "USD",
+   "effective_from": "2020-01-01",
+   "source_url": "https://grok.com/plans",
+   "verified_at": "2026-11-24",
+   "verified_by": "aao prices plans update (grok-grok)"
+  },
+  {
+   "vendor": "grok",
+   "plan": "SuperGrok Heavy",
+   "monthly": 300.0,
+   "currency": "USD",
+   "effective_from": "2020-01-01",
+   "source_url": "https://grok.com/plans",
+   "verified_at": "2026-11-24",
+   "verified_by": "aao prices plans update (grok-grok)"
+  },
+  {
+   "vendor": "kiro",
+   "plan": "Free",
+   "monthly": 0.0,
+   "currency": "USD",
+   "effective_from": "2020-01-01",
+   "source_url": "https://kiro.dev/pricing/",
+   "verified_at": "2026-11-24",
+   "verified_by": "aao prices plans update (kiro-kiro)"
+  },
+  {
+   "vendor": "kiro",
+   "plan": "Pro",
+   "monthly": 20.0,
+   "currency": "USD",
+   "effective_from": "2020-01-01",
+   "source_url": "https://kiro.dev/pricing/",
+   "verified_at": "2026-11-24",
+   "verified_by": "aao prices plans update (kiro-kiro)"
+  },
+  {
+   "vendor": "kiro",
+   "plan": "Pro+",
+   "monthly": 40.0,
+   "currency": "USD",
+   "effective_from": "2020-01-01",
+   "source_url": "https://kiro.dev/pricing/",
+   "verified_at": "2026-11-24",
+   "verified_by": "aao prices plans update (kiro-kiro)"
+  },
+  {
+   "vendor": "kiro",
+   "plan": "Pro Max",
+   "monthly": 100.0,
+   "currency": "USD",
+   "effective_from": "2020-01-01",
+   "source_url": "https://kiro.dev/pricing/",
+   "verified_at": "2026-11-24",
+   "verified_by": "aao prices plans update (kiro-kiro)"
+  },
+  {
+   "vendor": "kiro",
+   "plan": "Power",
+   "monthly": 200.0,
+   "currency": "USD",
+   "effective_from": "2020-01-01",
+   "source_url": "https://kiro.dev/pricing/",
+   "verified_at": "2026-11-24",
+   "verified_by": "aao prices plans update (kiro-kiro)"
+  }
+ ],
+ "updated_at": "2026-11-24"
+}

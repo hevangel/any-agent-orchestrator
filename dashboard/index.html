@@ -107,7 +107,7 @@ details summary { cursor: pointer; color: var(--ink-2); font-size: 12px; margin-
     <button data-tab="quotas">Quotas</button>
     <button data-tab="usage">Tokens &amp; cost</button>
     <button data-tab="free">Free tokens</button>
-    <button data-tab="prices">API prices</button>
+    <button data-tab="prices">Price</button>
     <button class="btn" id="refresh" title="Run collectors now">Refresh</button>
     <button class="btn" id="theme" title="Toggle light/dark">◐</button>
   </nav>
@@ -141,6 +141,9 @@ function s(tag, attrs = {}) {
 const fmtInt = n => n == null ? "—" : Math.round(n).toLocaleString();
 const fmtTok = n => n == null ? "—" : n >= 1e9 ? (n / 1e9).toFixed(2) + "B" : n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "K" : String(n);
 const fmtUsd = n => n == null ? "—" : "$" + (n >= 100 ? Math.round(n).toLocaleString() : n.toFixed(2));
+// Plan prices keep the currency their page showed (Google localizes): USD as $, others with their prefix.
+const CURRENCY_PREFIX = { USD: "$", CAD: "CA$", AUD: "A$", EUR: "€", GBP: "£" };
+const fmtMoney = (n, cur) => n == null ? "—" : (CURRENCY_PREFIX[cur] ?? (cur + " ")) + (n >= 100 ? Math.round(n).toLocaleString() : n.toFixed(2));
 const fmtGiB = b => b == null ? "—" : b >= 2 ** 40 ? (b / 2 ** 40).toFixed(1) + " TiB" : (b / 2 ** 30).toFixed(1) + " GiB";
 function ago(iso) {
   if (!iso) return "—";
@@ -175,6 +178,8 @@ function countdown(iso) {
 const PROVIDER_NAMES = { claude: "Claude", codex: "Codex (ChatGPT)", agy: "Antigravity", copilot: "GitHub Copilot",
   kiro: "Kiro", cursor: "Cursor", muse: "Muse", flow: "Google Flow", gemini: "Gemini" };
 const WEEKS_PER_MONTH = 52 / 12;
+const PLAN_VENDORS = { claude: "Claude", chatgpt: "ChatGPT", google: "Google AI", copilot: "GitHub Copilot",
+  cursor: "Cursor", kiro: "Kiro", grok: "Grok", muse: "Muse" };
 function resetLabel(w) {
   if (w.resets_at) return `${until(w.resets_at, w.reset_estimated)} (${resetAt(w.resets_at, w.reset_estimated)})`;
   return w.reset_text || "no reset time";
@@ -337,7 +342,7 @@ function renderQuotas(data) {
 // Top bar: every provider's next weekly and monthly resets, soonest first, with what is still
 // unused (a provider without one shows its soonest reset, or none). It scrolls sideways with
 // arrow buttons at the edges instead of a scrollbar.
-// Dollar values divide the monthly plan price (AAO_QUOTA_PLAN_USD) into weeks, so every
+// Dollar values divide the monthly plan price (data/plan_prices.json) into weeks, so every
 // window, weekly or monthly, is valued on the same per-week scale.
 function nextResets(accounts) {
   const now = Date.now();
@@ -357,7 +362,7 @@ function nextResets(accounts) {
         h("div", { class: "when" }, "—"),
         h("div", { class: "line" }, a.error ? a.error : (w.reset_text || "no upcoming reset reported")),
         left == null ? null : h("div", { class: "line" }, h("b", {}, `${left}% left`)));
-      const price = a.plan_usd_month;
+      const pp = a.plan_price, price = pp && !pp.included_in ? pp.monthly : null, cur = pp?.currency;
       const weekly = price == null ? null : price / WEEKS_PER_MONTH;
       // Credit-metered plans (Kiro) are valued in their own credits, on the same per-week scale.
       const credits = w.limit_credits;
@@ -366,10 +371,12 @@ function nextResets(accounts) {
           ` of ${fmtInt(credits)} still unused (${fmtInt(credits / Math.max(1, creditWeeks))}/week)`)
         // A balance with no allowance shown (Flow credits): the site's own words.
         : left == null && w.remaining != null && w.limit == null ? h("span", {}, h("b", {}, w.label || fmtInt(w.remaining)), " left")
-        : price == null ? h("span", {}, "Plan price not set (AAO_QUOTA_PLAN_USD)")
+        // One subscription behind several providers (Google AI: Gemini, Flow, Antigravity) is valued once.
+        : pp?.included_in ? h("span", {}, `Included in ${PLAN_VENDORS[pp.vendor] || pp.vendor} ${pp.plan}, valued on ${PROVIDER_NAMES[pp.included_in] || pp.included_in}`)
+        : price == null ? h("span", {}, a.plan ? `No price for plan ${a.plan} in data/plan_prices.json` : "Plan unknown: set the .env account PLAN")
         : price === 0 ? h("span", {}, "Free plan, no subscription value")
-        : left == null ? h("span", {}, `Plan worth ${fmtUsd(weekly)} a week`)
-        : h("span", {}, h("b", {}, "≈ " + fmtUsd(weekly * left / 100)), ` of ${fmtUsd(weekly)}/week still unused`);
+        : left == null ? h("span", {}, `Plan worth ${fmtMoney(weekly, cur)} a week`)
+        : h("span", {}, h("b", {}, "≈ " + fmtMoney(weekly * left / 100, cur)), ` of ${fmtMoney(weekly, cur)}/week still unused`);
       const name = (PROVIDER_NAMES[a.provider] || a.provider) + (w.scope ? " " + w.scope : "");
       return h("div", { class: "card" },
         h("div", { class: "what" }, h("b", {}, name), " · ", w.name, a.plan ? ` · ${a.plan}` : ""),
@@ -566,13 +573,23 @@ function renderPrices(data) {
   const sec = $("#tab-prices");
   if (!data || data.missing) return missing(sec, "price", "data/api_prices.json");
   const p = v => v == null ? "—" : "$" + (v < 1 ? v.toFixed(3) : v.toFixed(2));
-  fill(sec, 
+  const plans = data.plans;
+  fill(sec,
+    h("h2", { class: "class-title", style: "margin-top:4px" }, "API price"),
     h("p", { class: "meta" }, `USD per 1M tokens, updated ${data.updated_at}. Models not listed are priced from the LiteLLM snapshot (aao prices sync).`),
     h("div", { class: "card table-wrap" }, h("table", {},
       h("tr", {}, ...["Model", "Provider", "Input", "Cache write 5m", "Cache write 1h", "Cache read", "Output", "From", "Verified"].map((t, i) => h("th", { class: i >= 2 && i <= 6 ? "num" : null }, t))),
       data.models.map(m => h("tr", {}, h("td", {}, m.model, m.aliases ? h("span", { class: "meta" }, " = " + m.aliases.join(", ")) : ""), h("td", {}, m.provider),
         ...["input", "cache_write_5m", "cache_write_1h", "cache_read", "output"].map(k => h("td", { class: "num" }, p(m.prices[k]))),
-        h("td", {}, m.effective_from), h("td", {}, h("a", { href: m.source_url, target: "_blank", rel: "noopener" }, m.verified_at)))))));
+        h("td", {}, m.effective_from), h("td", {}, h("a", { href: m.source_url, target: "_blank", rel: "noopener" }, m.verified_at)))))),
+    h("h2", { class: "class-title" }, "Plan price"),
+    !plans || plans.missing ? h("p", { class: "empty" }, "No plan prices yet: run uv run aao prices plans update.")
+      : [h("p", { class: "meta" }, `Monthly price of each individual subscription plan, from its official pricing page (aao prices plans update), updated ${plans.updated_at}. Prices are in the currency the page showed; a changed price is a new row. The Quotas tab values each account's unused share with its plan's price.`),
+        h("div", { class: "card table-wrap" }, h("table", {},
+          h("tr", {}, ...["Vendor", "Plan", "Monthly", "From", "Verified"].map((t, i) => h("th", { class: i === 2 ? "num" : null }, t))),
+          plans.plans.map(e => h("tr", {}, h("td", {}, PLAN_VENDORS[e.vendor] || e.vendor), h("td", {}, e.plan),
+            h("td", { class: "num" }, fmtMoney(e.monthly, e.currency) + (e.currency === "USD" ? "" : " " + e.currency)),
+            h("td", {}, e.effective_from), h("td", {}, h("a", { href: e.source_url, target: "_blank", rel: "noopener" }, e.verified_at))))))]);
 }
 
 /* -------------------------------------------------------------------- boot */
