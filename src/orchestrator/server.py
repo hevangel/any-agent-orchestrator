@@ -7,6 +7,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from orchestrator.collect import COLLECTORS
+from orchestrator.plan_prices import PLANS_FILE
 from orchestrator.state import DASHBOARD_DIR, DATA_DIR, STATE_DIR, read_json
 
 INTERVALS = {"machines": 60, "quotas": 300, "usage": 600}
@@ -87,6 +88,8 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._json(projects_payload())
             if name in API_FILES:
                 data = read_json(API_FILES[name])
+                if name == "prices" and data is not None:  # the Price tab shows API and plan prices
+                    data = {**data, "plans": read_json(PLANS_FILE) or {"missing": True}}
                 return self._json(data if data is not None else {"missing": True}, 200)
             return self._json({"error": "not found"}, 404)
         return super().do_GET()

@@ -60,7 +60,38 @@ def cmd_serve(args):
     serve(args.host, args.port, refresh=not args.no_refresh)
 
 
+def _plan_prices(args):
+    """`aao prices plans update|validate|list`: subscription plan prices in data/plan_prices.json."""
+    from orchestrator import plan_prices, plan_update
+
+    sub = args.model or "list"
+    if sub == "update":
+        report = plan_update.update(vendors=args.provider, dry_run=args.dry_run)
+        for source, count in report["parsed"].items():
+            print(f"  {source}: {count} plans parsed")
+        for kind, vendor, plan, eff, old, new in report["changes"]:
+            print(f"  {kind:12} {vendor:8} {plan:18} from {eff}: {old or 'none'} -> {new}")
+        for source, err in report["errors"].items():
+            print(f"  ! {source}: {err}")
+        print("dry run: nothing written" if args.dry_run else
+              f"{len(report['changes'])} change(s) written to {plan_prices.PLANS_FILE.name}")
+        return 1 if report["errors"] else 0
+    table = plan_prices.load()
+    if sub == "validate":
+        errors = plan_prices.validate(table)
+        print("\n".join(errors) or "plan_prices.json OK")
+        return 1 if errors else 0
+    if sub == "list":
+        for e in table.get("plans", []):
+            print(f"  {e['vendor']:8} {e['plan']:18} {e['monthly']:>8g} {e['currency']}  from {e['effective_from']}  verified {e['verified_at']}")
+        return 0
+    print("Use aao prices plans update|validate|list", file=sys.stderr)
+    return 1
+
+
 def cmd_prices(args):
+    if args.action == "plans":
+        return _plan_prices(args)
     if args.action == "update":
         from orchestrator import price_update
 
@@ -947,11 +978,12 @@ def main(argv=None):
     p.set_defaults(func=cmd_serve)
 
     p = sub.add_parser("prices", help="price table tools")
-    p.add_argument("action", choices=["update", "sync", "validate", "lookup"],
-                   help="update: parse official pricing pages into data/api_prices.json; sync: LiteLLM fallback snapshot")
-    p.add_argument("model", nargs="?")
+    p.add_argument("action", choices=["update", "sync", "validate", "lookup", "plans"],
+                   help="update: parse official pricing pages into data/api_prices.json; sync: LiteLLM fallback snapshot; "
+                        "plans update|validate|list: subscription plan prices in data/plan_prices.json")
+    p.add_argument("model", nargs="?", help="lookup: the model; plans: update, validate or list")
     p.add_argument("--dry-run", action="store_true", help="update: show changes without writing")
-    p.add_argument("--provider", action="append", help="update: only this provider (repeatable)")
+    p.add_argument("--provider", action="append", help="update: only this provider (plans: vendor) (repeatable)")
     p.set_defaults(func=cmd_prices)
 
     p = sub.add_parser("web", help="Chat and media generation through playwright-cli with saved login profiles")

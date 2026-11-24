@@ -108,31 +108,32 @@ def collect():
         except (OSError, ValueError) as exc:
             errors["codex-logs"] = str(exc)
     accounts = [a for a in accounts if a["provider"] not in EXCLUDED]
-    prices = plan_prices(errors=errors)
-    for account in accounts:
-        price = prices.get(f"{account['provider']}:{account.get('aao_account') or account.get('account')}",
-                           prices.get(account["provider"]))
-        if price is not None:
-            account["plan_usd_month"] = price
+    attach_plan_prices(accounts, errors)
     return {"schema": "quotas-v1", "accounts": accounts, "errors": errors,
             "collected_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
 
 
-def plan_prices(settings=None, errors=None):
-    """Monthly subscription price per provider (or provider:account) from AAO_QUOTA_PLAN_USD,
-    e.g. `claude=20,codex=20,agy=19.99,copilot=0`. The dashboard divides it into a weekly value
-    to show what the unused share of each window is worth. Providers left out show no value."""
-    from orchestrator.config import Settings
+def attach_plan_prices(accounts, errors=None, settings=None):
+    """Each account's subscription price from data/plan_prices.json (written by
+    `aao prices plans update`), matched by the plan the quota screen reports or, failing that, the
+    .env account PLAN of that agent. The dashboard divides it into a weekly value to show what the
+    unused share of each window is worth. Accounts whose plan has no entry show no value."""
+    from orchestrator import plan_prices
+    from orchestrator.config import accounts as load_accounts
 
-    prices = {}
-    for item in (settings or Settings()).list("AAO_QUOTA_PLAN_USD", []):
-        key, _, value = item.partition("=")
-        try:
-            prices[provider_id(key.split(":")[0]) + (":" + key.split(":", 1)[1].strip() if ":" in key else "")] =                 float(value.strip().lstrip("$"))
-        except ValueError:
-            if errors is not None:
-                errors["plan-prices"] = f"AAO_QUOTA_PLAN_USD: cannot read {item!r} (use provider=monthly USD)"
-    return prices
+    plans = {}
+    try:
+        for account in load_accounts(settings):
+            if account.plan:
+                plans.setdefault(provider_id(account.agent), account.plan)
+    except (OSError, ValueError) as exc:
+        if errors is not None:
+            errors["plan-prices"] = f".env accounts: {exc}"
+    table = plan_prices.load()
+    problems = plan_prices.validate(table)
+    if problems and errors is not None:
+        errors["plan-prices"] = "data/plan_prices.json: " + "; ".join(problems[:3])
+    return plan_prices.attach(accounts, table, plans)
 
 
 def collect_screen_accounts(accounts, errors):

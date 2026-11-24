@@ -26,7 +26,7 @@ One page, six tabs, refreshed in the background:
 - **Quotas:** how much of each subscription's 5-hour, weekly and monthly allowance is left, when it resets, and a warning if you're on track to run out before the reset.
 - **Tokens & cost:** daily token use split into fresh input, cache writes, cache reads and output, and what that use would have cost at public API prices, per day, per model and per session.
 - **Free tokens:** free tiers, credits and promotions you can use, kept current by an agent once a day.
-- **API prices:** the price table behind the cost figures, with sources.
+- **Price:** the API price table behind the cost figures and the subscription plan prices behind the quota values, with sources.
 
 Nothing leaves your computer: the dashboard reads the agents' own log files and asks each provider for its own quota. Remote machines are read over SSH and need only Python; nothing is installed on them.
 

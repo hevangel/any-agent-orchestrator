@@ -95,13 +95,3 @@ def test_copilot_collector_opt_out_and_no_token(monkeypatch):
     monkeypatch.setenv("AAO_QUOTA_COPILOT", "0")
     monkeypatch.setattr(quotas, "_github_token", lambda env=None: pytest.fail("token read while disabled"))
     assert quotas.collect_copilot_accounts([], {}) == []
-
-
-def test_plan_prices_from_settings_attach_per_provider_and_account():
-    from orchestrator.config import Settings
-
-    errors = {}
-    prices = quotas.plan_prices(Settings(env={"AAO_QUOTA_PLAN_USD": "claude=20, Antigravity=$19.99,copilot=0,claude:work=100,kiro=lots"}), errors)
-    assert prices == {"claude": 20.0, "agy": 19.99, "copilot": 0.0, "claude:work": 100.0}
-    assert "kiro=lots" in errors["plan-prices"]
-    assert quotas.plan_prices(Settings(env={})) == {}
