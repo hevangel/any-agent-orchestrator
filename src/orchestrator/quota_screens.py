@@ -235,11 +235,22 @@ def parse_kiro(screen, now=None):
 def parse_antigravity(screen, now=None):
     now = now or datetime.now(timezone.utc)
     text = ANSI.sub("", screen).replace("\r", "")
-    groups = list(re.finditer(r"^\s*(GEMINI MODELS|CLAUDE AND GPT MODELS|GEMINI \d+(?:\.\d+)? ARGON)\s*$", text, re.M))
+    heading = r"GEMINI MODELS|CLAUDE AND GPT MODELS|GEMINI \d+(?:\.\d+)? ARGON"
+    groups = [(m.start(), m.end(), m[1]) for m in re.finditer(rf"^\s*({heading})\s*$", text, re.M)]
+    # A scrolled page can start below a group's heading. Its "Models within this group:" line still
+    # names the group, so a models line above the first heading starts that group.
+    first = groups[0][0] if groups else len(text)
+    orphan = re.search(r"^\s*Models within this group:\s*([^\n]+)", text[:first], re.M)
+    if orphan:
+        models = orphan[1]
+        name = ("CLAUDE AND GPT MODELS" if re.search(r"\b(Claude|GPT)", models)
+                else "GEMINI MODELS" if "Gemini" in models else None)
+        if name:
+            groups.insert(0, (orphan.start(), orphan.end(), name))
     windows = []
-    for i, group in enumerate(groups):
-        body = text[group.end():groups[i + 1].start() if i + 1 < len(groups) else len(text)]
-        scope = "Gemini" if group[1] == "GEMINI MODELS" else "Claude/GPT" if group[1] == "CLAUDE AND GPT MODELS" else "Argon"
+    for i, (_, end, name) in enumerate(groups):
+        body = text[end:groups[i + 1][0] if i + 1 < len(groups) else len(text)]
+        scope = "Gemini" if name == "GEMINI MODELS" else "Claude/GPT" if name == "CLAUDE AND GPT MODELS" else "Argon"
         pattern = r"(Weekly|Five Hour) Limit" + (r"(?: Remaining)?" if scope == "Argon" else " Remaining")
         labels = list(re.finditer(pattern, body, re.I))
         for j, label in enumerate(labels):
@@ -253,6 +264,21 @@ def parse_antigravity(screen, now=None):
                                 _reset(block[pct.end():], now))
             windows.append(window)
     return windows
+
+
+UNSENT_READS = 6  # ~3 s of screens with no quota before checking for an unsent command
+MAX_RESUBMITS = 2
+STUCK_READS = 4  # unchanged unreadable reads of a later page before keeping the pages already read
+
+
+def command_unsent(screen, command):
+    """True when `command` is still typed in the input with the slash-command menu open below it:
+    an input line holding only the command, and a menu line with the command and its description."""
+    text = ANSI.sub("", screen or "").replace("\r", "")
+    cmd = re.escape(command)
+    typed = re.search(rf"^[ \t>❯→›│]*{cmd}[ \t│]*$", text, re.M)
+    menu = re.search(rf"^[ \t>❯→›│]*{cmd}[ \t]{{2,}}\S", text, re.M)
+    return bool(typed and menu)
 
 
 def read_quota(cli, account=None, *, machine=None, cwd=None, timeout=60):
@@ -309,6 +335,8 @@ def read_quota(cli, account=None, *, machine=None, cwd=None, timeout=60):
         pages = iter(spec.get("read_pages", []))
         captured = []
         merged = {}
+        idle_reads = resubmits = same_reads = 0
+        last_screen = None
         while time.monotonic() < deadline:
             ok, data, error = drivers._herdr(machine, "agent", "read", name, "--source", "visible",
                                             "--lines", "160", timeout=min(10, timeout))
@@ -318,10 +346,16 @@ def read_quota(cli, account=None, *, machine=None, cwd=None, timeout=60):
             screen = drivers._text(data)
             result["screen"] = screen
             windows = parse_screen(parser, screen, now)
-            if windows and windows == previous:
-                captured.append(screen)
-                merged.update({(w["name"], w["scope"]): w for w in windows})
-                page = next(pages, None)
+            # A later page that stays unchanged and unreadable ends the read with the pages already
+            # read, rather than timing out and dropping them.
+            same_reads = same_reads + 1 if merged and not windows and screen == last_screen else 0
+            last_screen = screen
+            stuck = same_reads >= STUCK_READS
+            if (windows and windows == previous) or stuck:
+                if windows:
+                    captured.append(screen)
+                    merged.update({(w["name"], w["scope"]): w for w in windows})
+                page = None if stuck else next(pages, None)
                 if page:
                     keys = page["keys"] * page.get("repeat", 1)
                     ok, _, error = drivers._herdr(machine, "agent", "send-keys", name, *keys)
@@ -347,6 +381,15 @@ def read_quota(cli, account=None, *, machine=None, cwd=None, timeout=60):
                 result["accounts"] = [row]
                 return result
             previous = windows
+            idle_reads = 0 if windows else idle_reads + 1
+            if idle_reads >= UNSENT_READS and resubmits < MAX_RESUBMITS and command_unsent(screen, command):
+                # The slash-command menu swallowed the Enter (seen with Cursor): the command still sits in
+                # the input with its menu open. Press Enter once more; this only runs the same command.
+                ok, _, error = drivers._herdr(machine, "agent", "send-keys", name, "enter")
+                if not ok:
+                    result["error"] = error or "quota command resubmission failed"
+                    return result
+                resubmits, idle_reads = resubmits + 1, 0
             time.sleep(0.5)
         result["error"] = f"{cli} {command}: no readable quota windows within {timeout}s (login, plan, or screen format may be unsupported)"
     except (KeyError, TypeError, ValueError) as exc:

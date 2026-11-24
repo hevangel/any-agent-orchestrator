@@ -81,6 +81,81 @@ def test_panel_reader_captures_all_pages_and_closes_only_its_workspace(monkeypat
     assert calls[-1] == ("workspace", "close", "own")
 
 
+# Antigravity's panel after Argon joined the Gemini group (29 lines): the scrolled page starts
+# below the CLAUDE AND GPT MODELS heading, and a spent weekly limit disables the 5-hour limit.
+AGY_NEW_TOP = """└ Models & Quota
+  Account: someone@example.com
+GEMINI MODELS
+  Models within this group: Gemini 4 Neon, Gemini 4 Carbon, Gemini 4 Argon, Gemini 4 Hydrogen
+  Weekly Limit Remaining
+    [████] 99.19%
+    Refreshes in 159h 57m
+  Five Hour Limit Remaining
+    [████] 100.00%
+    Quota available
+CLAUDE AND GPT MODELS
+  Models within this group: Claude Opus 5.5, Claude Sonnet 5.5, GPT-OSS 120B
+  Weekly Limit Remaining
+  (1–16 of 29 lines)
+"""
+AGY_NEW_SCROLLED = """└ Models & Quota
+  Account: someone@example.com
+  Models within this group: Claude Opus 5.5, Claude Sonnet 5.5, GPT-OSS 120B
+  Weekly Limit Remaining
+    [░░░░] 0.00%
+    Refreshes in 18h 29m
+  Five Hour Limit Remaining
+    Disabled: You have hit your weekly limit, the 5-hour limit does not currently apply. Your
+  │Within each group, models share a weekly limit and a 5-hour limit.
+  (14–29 of 29 lines)
+"""
+
+
+def test_antigravity_scrolled_page_without_its_heading_uses_the_models_line():
+    assert [(w["scope"], w["name"], w["used_pct"]) for w in quota_screens.parse_screen("antigravity", AGY_NEW_TOP, NOW)] == [
+        ("Gemini", "weekly", 0.81), ("Gemini", "5-hour", 0)]
+    (claude,) = quota_screens.parse_screen("antigravity", AGY_NEW_SCROLLED, NOW)
+    assert (claude["scope"], claude["name"], claude["used_pct"]) == ("Claude/GPT", "weekly", 100)
+    assert claude["resets_at"] == "2026-11-12T18:29:00+00:00"
+    gemini_only = AGY_NEW_SCROLLED.replace("Claude Opus 5.5, Claude Sonnet 5.5, GPT-OSS 120B", "Gemini 4 Neon")
+    assert quota_screens.parse_screen("antigravity", gemini_only, NOW)[0]["scope"] == "Gemini"
+
+
+def _paged_reader(monkeypatch, top, scrolled):
+    calls, page = [], [top]
+
+    def herdr(machine, *args, **kwargs):
+        calls.append(args)
+        if args[:2] == ("workspace", "create"):
+            return True, {"result": {"workspace": {"workspace_id": "own"}, "root_pane": {"pane_id": "own:p1"}}}, None
+        if args[:2] == ("agent", "read"):
+            return True, {"result": {"text": page[0]}}, None
+        if args[:2] == ("agent", "send-keys"):
+            page[0] = scrolled
+        return True, {}, None
+
+    monkeypatch.setattr(drivers, "_herdr", herdr)
+    monkeypatch.setattr(drivers, "start_interactive", lambda *a, **kw: ("reader", None, "", []))
+    monkeypatch.setattr(quota_screens.time, "sleep", lambda _: None)
+    return calls
+
+
+def test_panel_reader_merges_a_scrolled_page_without_its_heading(monkeypatch):
+    calls = _paged_reader(monkeypatch, AGY_NEW_TOP, AGY_NEW_SCROLLED)
+    result = quota_screens.read_quota("antigravity")
+    assert result["error"] is None
+    assert [(w["scope"], w["name"]) for w in result["accounts"][0]["windows"]] == [
+        ("Gemini", "weekly"), ("Gemini", "5-hour"), ("Claude/GPT", "weekly")]
+    assert calls[-1] == ("workspace", "close", "own")
+
+
+def test_unreadable_later_page_keeps_the_pages_already_read(monkeypatch):
+    _paged_reader(monkeypatch, AGY_NEW_TOP, "(14–29 of 29 lines)\nsomething new")
+    result = quota_screens.read_quota("antigravity")
+    assert result["error"] is None
+    assert [(w["scope"], w["name"]) for w in result["accounts"][0]["windows"]] == [("Gemini", "weekly"), ("Gemini", "5-hour")]
+
+
 def test_kiro_launches_chat_before_permission_arguments(monkeypatch):
     launches = []
 

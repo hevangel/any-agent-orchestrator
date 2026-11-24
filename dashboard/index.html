@@ -339,7 +339,12 @@ function nextResets(accounts) {
       const left = w.remaining_pct;
       const price = a.plan_usd_month;
       const weekly = price == null ? null : price / WEEKS_PER_MONTH;
-      const value = price == null ? h("span", {}, "Plan price not set (AAO_QUOTA_PLAN_USD)")
+      // Credit-metered plans (Kiro) are valued in their own credits, on the same per-week scale.
+      const credits = w.limit_credits;
+      const creditWeeks = (w.seconds ?? 2592000) / 604800;
+      const value = price == null && credits ? h("span", {}, h("b", {}, `≈ ${fmtInt(credits - (w.used_credits ?? 0))} credits`),
+          ` of ${fmtInt(credits)} still unused (${fmtInt(credits / Math.max(1, creditWeeks))}/week)`)
+        : price == null ? h("span", {}, "Plan price not set (AAO_QUOTA_PLAN_USD)")
         : price === 0 ? h("span", {}, "Free plan, no subscription value")
         : left == null ? h("span", {}, `Plan worth ${fmtUsd(weekly)} a week`)
         : h("span", {}, h("b", {}, "≈ " + fmtUsd(weekly * left / 100)), ` of ${fmtUsd(weekly)}/week still unused`);
