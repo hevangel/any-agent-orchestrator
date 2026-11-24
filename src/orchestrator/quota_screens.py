@@ -23,27 +23,130 @@ HEADINGS = {
 }
 
 
+MONTHS = {m: i for i, m in enumerate(["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"], 1)}
+_MONTH = r"(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?"
+_CLOCK = r"(\d{1,2})(?::(\d{2}))?\s*([ap]\.?m\.?)?"
+
+
+def local_tz():
+    """Timezone of the machine whose CLI printed the screen (collection is local)."""
+    return datetime.now().astimezone().tzinfo
+
+
+def _zone(name):
+    try:
+        from zoneinfo import ZoneInfo
+        return ZoneInfo(name)
+    except Exception:  # unknown zone or no tz database: leave the time unparsed
+        return None
+
+
+def _hour(hour, minute, meridiem):
+    hour, minute = int(hour), int(minute or 0)
+    if meridiem:
+        if not 1 <= hour <= 12:
+            return None
+        hour = hour % 12 + (12 if meridiem[0].lower() == "p" else 0)
+    return (hour, minute) if hour < 24 and minute < 60 else None
+
+
+def clock_reset(value, now, tz=None):
+    """Turn a screen's local reset label into (UTC ISO timestamp, estimated).
+
+    Handles "4pm", "16:00", "12:38 AM on 24 Nov", "Nov 28, 8pm", "Dec 5" and
+    "2026-12-01", with an optional trailing "(Area/City)" zone; otherwise the zone
+    is this machine's. The next occurrence after `now` is chosen when the year or
+    day is missing. A label without a clock time ("Dec 5") is taken as local
+    midnight and marked estimated. Anything else returns (None, False).
+    """
+    value = value.strip().rstrip(".")
+    zone = re.search(r"\(([A-Za-z_]+(?:/[A-Za-z_+-]+)+|UTC)\)\s*$", value)
+    if zone:
+        tz = timezone.utc if zone[1] == "UTC" else _zone(zone[1])
+        if tz is None:
+            return None, False
+        value = value[:zone.start()].strip()
+    tz = tz or local_tz()
+    local_now = now.astimezone(tz)
+    value = re.sub(r"^(?:on|at)\s+", "", value, flags=re.I).strip(" ,")
+    year = month = day = clock = None
+    if m := re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", value):
+        year, month, day = map(int, m.groups())
+    elif m := re.fullmatch(_CLOCK + r"(?:\s*,?\s*(?:on\s+)?(\d{1,2})\s+" + _MONTH + r"|\s*,?\s*(?:on\s+)?" + _MONTH + r"\s+(\d{1,2}))?(?:,?\s+(\d{4}))?", value, re.I):
+        clock = m.group(1, 2, 3)
+        if m[4]:
+            day, month = int(m[4]), MONTHS[m[5][:3].lower()]
+        elif m[6]:
+            month, day = MONTHS[m[6][:3].lower()], int(m[7])
+        year = int(m[8]) if m[8] else None
+        if not m[2] and not m[3]:  # a bare number is not a clock time
+            return None, False
+    elif m := re.fullmatch(_MONTH + r"\s+(\d{1,2})(?:(?:,\s*|\s+)(\d{4}))?(?:\s*,?\s*(?:at\s+)?" + _CLOCK + r")?", value, re.I):
+        month, day = MONTHS[m[1][:3].lower()], int(m[2])
+        year = int(m[3]) if m[3] else None
+        if m[4] and (m[5] or m[6]):
+            clock = m.group(4, 5, 6)
+    elif m := re.fullmatch(r"(\d{1,2})\s+" + _MONTH + r"(?:\s+(\d{4}))?", value, re.I):
+        day, month = int(m[1]), MONTHS[m[2][:3].lower()]
+        year = int(m[3]) if m[3] else None
+    else:
+        return None, False
+    hour, minute = (0, 0)
+    if clock:
+        parsed = _hour(*clock)
+        if parsed is None:
+            return None, False
+        hour, minute = parsed
+    try:
+        if month is None:  # clock only: today or tomorrow
+            stamp = local_now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            if stamp <= local_now:
+                stamp = (stamp.replace(tzinfo=None) + timedelta(days=1)).replace(tzinfo=tz)
+        else:
+            stamp = datetime(year or local_now.year, month, day, hour, minute, tzinfo=tz)
+            if year is None and stamp < local_now - timedelta(days=1):
+                stamp = stamp.replace(year=stamp.year + 1)
+    except ValueError:
+        return None, False
+    return stamp.astimezone(timezone.utc).isoformat(), clock is None
+
+
 def _reset(text, now):
-    """Keep ambiguous local clock/date strings verbatim rather than guess a timezone."""
+    """Return (resets_at, raw label, estimated). Relative durations, ISO stamps and
+    local clock/date labels become timestamps; anything else stays verbatim only."""
     match = re.search(r"\b(?:resets?|refreshes)\s+(?:at\s+)?(.+)", text, re.I)
     if not match:
-        return None, None
+        return None, None, False
     raw = match[0].strip(" │┃║")
     if raw.count(")") > raw.count("("):
         raw = raw[:-1]
     value = match[1].strip(" │┃║")
+    if value.count(")") > value.count("("):
+        value = value[:value.rindex(")")]
     relative = re.fullmatch(r"in\s+((?:\d+\s*[dhms]\s*)+)\)?", value, re.I)
     if relative:
         seconds = sum(int(n) * {"d": 86400, "h": 3600, "m": 60, "s": 1}[unit.lower()]
                       for n, unit in re.findall(r"(\d+)\s*([dhms])", relative[1], re.I))
-        return (now + timedelta(seconds=seconds)).isoformat(), raw
+        return (now + timedelta(seconds=seconds)).isoformat(), raw, False
     try:
         stamp = datetime.fromisoformat(value.rstrip(")").replace("Z", "+00:00"))
         if stamp.tzinfo is not None:
-            return stamp.astimezone(timezone.utc).isoformat(), raw
+            return stamp.astimezone(timezone.utc).isoformat(), raw, False
     except ValueError:
         pass
-    return None, raw
+    stamp, estimated = clock_reset(value, now)
+    return stamp, raw, estimated
+
+
+def _set_reset(window, reset):
+    stamp, raw, estimated = reset
+    if stamp:
+        window["resets_at"] = stamp
+    if raw:
+        window["reset_text"] = raw
+    if stamp and estimated:
+        window["reset_estimated"] = True
+    return window
 
 
 def parse_screen(parser, screen, now=None):
@@ -75,10 +178,7 @@ def parse_screen(parser, screen, now=None):
         scope = heading[2] if parser == "claude" else None
         if scope and scope.lower() == "all models":
             scope = None
-        reset_at, reset_text = _reset(block[pct.end():], now)
-        window = _window(name, used, reset_at, seconds, scope)
-        if reset_text:
-            window["reset_text"] = reset_text
+        window = _set_reset(_window(name, used, None, seconds, scope), _reset(block[pct.end():], now))
         if not any((w["name"], w["scope"]) == (name, scope) for w in windows):
             windows.append(window)
     return windows
@@ -86,6 +186,7 @@ def parse_screen(parser, screen, now=None):
 
 def parse_cursor(screen, now=None):
     """Cursor /usage: Included is the plan quota; Auto/API are its breakdown."""
+    now = now or datetime.now(timezone.utc)
     text = ANSI.sub("", screen).replace("\r", "")
     if "Monthly plan and on-demand usage" not in text:
         return []
@@ -95,7 +196,7 @@ def parse_cursor(screen, now=None):
     reset = re.search(r"\bResets [A-Za-z]+ \d{1,2}\b", text)
     window = _window("billing cycle", float(included[1]), None)
     if reset:
-        window["reset_text"] = reset[0]
+        _set_reset(window, _reset(reset[0], now))
     windows = [window]
     demand = re.search(r"^\s*On-Demand\s*:?\s*\$([\d,.]+)\s*/\s*\$([\d,.]+)", text, re.M | re.I)
     if demand:
@@ -107,12 +208,13 @@ def parse_cursor(screen, now=None):
             extra = _window("billing cycle", 100 * used / limit, None, scope="On-demand")
             extra.update(used_usd=used, limit_usd=limit)
             if reset:
-                extra["reset_text"] = reset[0]
+                _set_reset(extra, _reset(reset[0], now))
             windows.append(extra)
     return windows
 
 
 def parse_kiro(screen, now=None):
+    now = now or datetime.now(timezone.utc)
     text = ANSI.sub("", screen)
     heading = re.search(r"Estimated Usage\s*\|\s*(resets on [^|\n]+)\|", text, re.I)
     credits = re.search(r"Credits\s*\(([\d,.]+)\s+of\s+([\d,.]+)\s+covered in plan\)", text, re.I)
@@ -125,7 +227,8 @@ def parse_kiro(screen, now=None):
     if used < 0 or total <= 0:
         return []
     window = _window("monthly", 100 * used / total, None, seconds=2592000)
-    window.update(reset_text=heading[1].strip(), used_credits=used, limit_credits=total)
+    window.update(used_credits=used, limit_credits=total)
+    _set_reset(window, _reset(heading[1].strip(), now))
     return [window]
 
 
@@ -145,16 +248,14 @@ def parse_antigravity(screen, now=None):
             pct = re.search(r"(?<![\d.+-])(\d+(?:\.\d+)?)\s*%", block)
             if not pct or float(pct[1]) > 100:
                 continue
-            reset_at, reset_text = _reset(block[pct.end():], now)
-            window = _window("weekly" if label[1].lower() == "weekly" else "5-hour",
-                             round(100 - float(pct[1]), 6), reset_at, scope=scope)
-            if reset_text:
-                window["reset_text"] = reset_text
+            window = _set_reset(_window("weekly" if label[1].lower() == "weekly" else "5-hour",
+                                        round(100 - float(pct[1]), 6), None, scope=scope),
+                                _reset(block[pct.end():], now))
             windows.append(window)
     return windows
 
 
-def read_quota(cli, account=None, *, machine=None, cwd=None, timeout=30):
+def read_quota(cli, account=None, *, machine=None, cwd=None, timeout=60):
     """Return {accounts, error, screen}. Supports saved herdr machines and account homes.
 
     Startup handling uses the same literal startup_forms as the CLI driver. A login

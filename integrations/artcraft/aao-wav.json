@@ -1,0 +1,62 @@
+{
+  "spec_version": 1,
+  "id": "aao-wav",
+  "label": "AAO WAV",
+  "base": "http://127.0.0.1:8771/craft-ai/v1",
+  "auth": {
+    "kind": "bearer"
+  },
+  "probe": {
+    "method": "GET",
+    "path": "/health"
+  },
+  "models": [
+    {
+      "id": "grok",
+      "label": "Grok Audio",
+      "capability": "audio.generate",
+      "accepts": {
+        "prompt": 1
+      },
+      "requires": [
+        "prompt"
+      ]
+    }
+  ],
+  "flow": {
+    "kind": "queue",
+    "submit": {
+      "call": {
+        "method": "POST",
+        "path": "/jobs",
+        "body": {
+          "provider": "{model}",
+          "kind": "audio",
+          "prompt": "{prompt}"
+        }
+      },
+      "job_id_at": "/id"
+    },
+    "poll": {
+      "call": {
+        "method": "GET",
+        "path": "/jobs/{job_id}"
+      },
+      "status_at": "/state",
+      "states": {
+        "pending": "queued",
+        "succeeded": "succeeded",
+        "failed": "failed"
+      },
+      "result": {
+        "at": "/result/data",
+        "as": "base64",
+        "media_type": "audio/wav"
+      }
+    }
+  },
+  "limits": {
+    "max_polls": 1800,
+    "max_seconds": 1800
+  }
+}

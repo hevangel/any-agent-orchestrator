@@ -30,7 +30,7 @@ One page, six tabs, refreshed in the background:
 
 Nothing leaves your computer: the dashboard reads the agents' own log files and asks each provider for its own quota. Remote machines are read over SSH and need only Python; nothing is installed on them.
 
-For quota numbers, install one or both of: `uv tool install clanker-usage` (Claude, Codex, Cursor, Gemini, Antigravity, Muse, Z.ai and more) and `cargo install quota-cli` (adds Copilot, Grok, Kiro). Codex quotas also come from its own logs.
+Quota numbers are read from each installed agent's own `/usage` or `/status` screen through herdr (Claude, Codex, Cursor, Kiro, Antigravity); GitHub Copilot's monthly quotas are read from GitHub with your `gh` login. Optionally `cargo install quota-cli` adds Grok and Kimi. Codex quotas also come from its own logs. Every window shows when it resets.
 
 ## Where agents run
 
@@ -66,6 +66,18 @@ The end-to-end run sends each agent a tiny arithmetic question: directly, in Doc
 | Desktop apps | ChatGPT, Claude or Codex desktop apps | Computer use (screen control) from the Claude desktop app |
 
 Website agents use your existing logins. You sign in once yourself, and the orchestrator never types your passwords.
+
+## Generate images, video, and audio
+
+AAO uses your saved web logins to generate media and download it locally.
+
+```bash
+uv run aao web image chatgpt --prompt "A paper sailboat" --out downloads
+uv run aao web video flow --prompt "A paper sailboat drifting downstream" --out downloads
+uv run aao web audio flow-music --prompt "A gentle piano waltz" --out downloads
+```
+
+Run `uv run --extra grok-api aao media-serve` to serve jobs for the patched ArtCraft Studio or a Craft AI host that loads declarative adapters. The declarative bridge is opt-in and offers PNG, MP4, MP3, and WAV. Stock ArtCraft Studio v0.41.1 requires the patch for the Studio integration. [Provider list and setup](spec/web_interfaces.md#media-generation-from-the-web-cli) · [Declarative bridge setup](spec/web_interfaces.md#upstream-declarative-adapter-compatibility)
 
 ## How the agents coordinate
 

@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 import pytest
 
 from orchestrator import quota_screens, quotas
@@ -16,10 +18,14 @@ View in dashboard: cursor.com/dashboard?tab=usage
 
 
 def test_cursor_included_is_the_quota_and_breakdowns_are_not_duplicated():
-    (window,) = quota_screens.parse_screen("cursor", SCREEN)
+    now = datetime(2026, 11, 11, 20, tzinfo=timezone.utc)
+    (window,) = quota_screens.parse_screen("cursor", SCREEN, now)
     assert window["name"] == "billing cycle" and window["used_pct"] == 13
     assert window["remaining_pct"] == 87 and window["scope"] is None
-    assert window["resets_at"] is None and window["reset_text"] == "Resets Nov 13"
+    assert window["reset_text"] == "Resets Nov 13"
+    # A date without a clock time: the machine's local midnight, flagged as an estimate.
+    local = datetime(2026, 11, 13).astimezone()
+    assert window["resets_at"] == local.astimezone(timezone.utc).isoformat() and window["reset_estimated"]
 
 
 def test_compact_cursor_screen_and_zero_usage():
@@ -41,11 +47,11 @@ def test_cursor_does_not_invent_a_quota(screen):
 
 
 @pytest.mark.parametrize("success", [True, False])
-def test_cursor_native_screen_is_preferred_with_api_fallback(monkeypatch, success):
+def test_quota_screen_replaces_quota_cli_with_fallback(monkeypatch, success):
     monkeypatch.setattr("orchestrator.config.Settings", lambda: Settings(env={"AAO_QUOTA_SCREEN_AGENTS": "cursor"}))
     monkeypatch.setattr("orchestrator.config.accounts", lambda: [])
     monkeypatch.setattr(quotas.shutil, "which", lambda _: "/agent")
-    old = {"provider": "cursor", "status": "live", "source": "clanker-usage", "windows": [{}]}
+    old = {"provider": "cursor", "status": "live", "source": "quota-cli", "windows": [{}]}
     native = {"provider": "cursor", "status": "live", "source": "cursor-screen", "windows": [{}]}
     calls = []
 

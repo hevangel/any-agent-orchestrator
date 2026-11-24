@@ -1,16 +1,17 @@
 """Subscription quota windows (5-hour, weekly, ...) for every signed-in agent account.
 
-Sources, best first; a provider is taken from the first source that reports it:
-  clanker-usage --json   usage-v1 documents (stable schema), 10 providers incl. Z.ai and Muse
-  quota-cli usage --json Copilot, Grok, Kiro and others clanker does not cover
-  Agent status screens  Claude /usage and Codex /status through herdr
-  Codex session logs     rate_limits recorded in ~/.codex/sessions (no network call)
+Sources, best first:
+  Agent status screens   each CLI's own /usage or /status through herdr (agents.json quota_screen):
+                         Claude, Codex, Cursor, Kiro, Antigravity
+  Copilot entitlement    GitHub's copilot_internal/user document read with the gh token: Copilot
+  quota-cli usage --json Grok and others without a quota screen; replaced by a readable screen
+  Codex session logs     rate_limits recorded in ~/.codex/sessions when no Codex screen was read
+  Web usage pages        the site's own usage panel in the saved browser profile: Muse (web_muse.quota)
 """
 
 import glob
 import json
 import os
-import platform
 import shutil
 from datetime import datetime, timezone
 
@@ -18,6 +19,8 @@ from orchestrator.machines import _json, _run
 
 ALIASES = {"antigravity": "agy", "antigravity-cli": "agy", "claude-code": "claude", "anthropic": "claude",
            "github copilot": "copilot", "opencode go": "opencode", "z.ai": "zcode", "zai": "zcode"}
+# Providers never shown on the Quotas tab, whichever source reports them.
+EXCLUDED = {"deepseek", "devin"}
 LABEL_SECONDS = {"5h": 18000, "5-hour": 18000, "wk": 604800, "weekly": 604800, "week": 604800,
                  "mo": 2592000, "month": 2592000, "daily": 86400, "day": 86400}
 
@@ -38,20 +41,6 @@ def _window(name, used_pct, resets_at, seconds=None, scope=None):
     return {"name": name, "seconds": seconds if seconds is not None else LABEL_SECONDS.get((name or "").lower()),
             "scope": scope, "used_pct": used, "remaining_pct": None if used is None else round(100 - used, 1),
             "resets_at": resets_at}
-
-
-def from_clanker(documents):
-    accounts = []
-    for doc in documents or []:
-        if doc.get("schema") != "usage-v1":
-            continue
-        accounts.append({
-            "provider": provider_id(doc.get("provider")), "account": doc.get("account"), "plan": doc.get("plan"),
-            "status": doc.get("status"), "error": doc.get("error"), "retrieved_at": doc.get("retrieved_at"),
-            "windows": [_window(w.get("name"), w.get("used_pct"), w.get("resets_at"), w.get("seconds"), w.get("scope"))
-                        for w in doc.get("windows") or []],
-            "balance": doc.get("balance"), "source": "clanker-usage"})
-    return accounts
 
 
 def from_quota_cli(records):
@@ -103,20 +92,14 @@ def collect():
     # Windows SSL monitors can point this variable at a named pipe, crashing
     # OpenSSL in external Python collectors just as they do in our own HTTP client.
     tool_env = {k: v for k, v in os.environ.items() if k.upper() != "SSLKEYLOGFILE"}
-    ok, out, err = _run(["clanker-usage", "--json", "--max-age", "300"], timeout=90, env=tool_env)
-    if out.strip():
-        accounts += from_clanker(_json(out))
-    if not ok:
-        errors["clanker-usage"] = err
     ok, out, err = _run(["quota-cli", "usage", "--json"], timeout=90, env=tool_env)
     if out.strip():
-        have = {a["provider"] for a in accounts}
-        accounts += [a for a in from_quota_cli(_json(out)) if a["provider"] not in have]
+        accounts += from_quota_cli(_json(out))
     if not ok:
         errors["quota-cli"] = err
-    accounts += collect_configured_accounts(errors)
-    accounts = collect_cursor_windows(accounts, errors, tool_env)
     accounts = collect_screen_accounts(accounts, errors)
+    accounts = collect_copilot_accounts(accounts, errors, tool_env)
+    accounts = collect_web_accounts(accounts, errors)
     if not any(a["provider"] == "codex" and not a.get("aao_account") and a.get("windows") for a in accounts):
         try:
             fallback = from_codex_logs()
@@ -124,42 +107,36 @@ def collect():
                 accounts = [a for a in accounts if a["provider"] != "codex" or a.get("aao_account")] + fallback
         except (OSError, ValueError) as exc:
             errors["codex-logs"] = str(exc)
+    accounts = [a for a in accounts if a["provider"] not in EXCLUDED]
+    prices = plan_prices(errors=errors)
+    for account in accounts:
+        price = prices.get(f"{account['provider']}:{account.get('aao_account') or account.get('account')}",
+                           prices.get(account["provider"]))
+        if price is not None:
+            account["plan_usd_month"] = price
     return {"schema": "quotas-v1", "accounts": accounts, "errors": errors,
             "collected_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
 
 
-# clanker-usage reads these variables to find a provider's credentials.
-CLANKER_HOME_VARS = {"claude": "CLAUDE_CONFIG_DIR", "codex": "CODEX_HOME"}
+def plan_prices(settings=None, errors=None):
+    """Monthly subscription price per provider (or provider:account) from AAO_QUOTA_PLAN_USD,
+    e.g. `claude=20,codex=20,agy=19.99,copilot=0`. The dashboard divides it into a weekly value
+    to show what the unused share of each window is worth. Providers left out show no value."""
+    from orchestrator.config import Settings
 
-
-def collect_configured_accounts(errors):
-    """Quota for each account in .env whose CLI clanker-usage can read from a custom home."""
-    import os
-
-    from orchestrator.config import accounts as load_accounts
-
-    out = []
-    for account in load_accounts():
-        var = CLANKER_HOME_VARS.get(account.agent)
-        if not var or not account.home or "local" not in account.hosts:
-            continue
-        env = {**os.environ, var: account.expanded_home}
-        env.pop("SSLKEYLOGFILE", None)
-        ok, text, err = _run(["clanker-usage", account.agent, "json", "--max-age", "300"], timeout=90, env=env)
-        docs = _json(text) if text.strip() else None
-        if isinstance(docs, dict):
-            docs = [docs]
-        for doc in from_clanker(docs or []):
-            doc["aao_account"] = account.id
-            doc["plan"] = doc.get("plan") or account.plan
-            out.append(doc)
-        if not ok:
-            errors[f"clanker-usage:{account.id}"] = err
-    return out
+    prices = {}
+    for item in (settings or Settings()).list("AAO_QUOTA_PLAN_USD", []):
+        key, _, value = item.partition("=")
+        try:
+            prices[provider_id(key.split(":")[0]) + (":" + key.split(":", 1)[1].strip() if ":" in key else "")] =                 float(value.strip().lstrip("$"))
+        except ValueError:
+            if errors is not None:
+                errors["plan-prices"] = f"AAO_QUOTA_PLAN_USD: cannot read {item!r} (use provider=monthly USD)"
+    return prices
 
 
 def collect_screen_accounts(accounts, errors):
-    """Fill missing quota windows using installed agents' built-in status screens."""
+    """Read each installed agent's built-in quota screen; a readable screen replaces quota-cli rows."""
     from orchestrator.config import Settings, catalog
     from orchestrator.config import accounts as load_accounts
     from orchestrator.quota_screens import read_quota
@@ -179,10 +156,6 @@ def collect_screen_accounts(accounts, errors):
         for account in candidates:
             aid = account.id if account else None
             existing = [a for a in accounts if a["provider"] == provider_id(cli) and a.get("aao_account") == aid]
-            if not known[cli]["quota_screen"].get("prefer") and any(
-                a.get("windows") and a.get("status") in ("live", "cached") for a in existing
-            ):
-                continue
             result = read_quota(cli, account)
             if result["accounts"]:
                 accounts = [a for a in accounts if a not in existing] + result["accounts"]
@@ -191,27 +164,99 @@ def collect_screen_accounts(accounts, errors):
     return accounts
 
 
-def collect_cursor_windows(accounts, errors, tool_env):
-    """Use Cursor CLI's native Windows config directory, not the IDE's token store.
+COPILOT_USER = "https://api.github.com/copilot_internal/user"
+COPILOT_QUOTAS = {"premium_interactions": "Premium requests", "chat": "Chat", "completions": "Completions"}
+COPILOT_SKUS = {"free_limited_copilot": "Free", "copilot_pro": "Pro", "copilot_pro_plus": "Pro+",
+                "copilot_for_business": "Business", "copilot_enterprise": "Enterprise"}
 
-    clanker-usage defaults to ~/.config/cursor even on Windows. Cursor CLI writes
-    %APPDATA%/Cursor/auth.json there; pass XDG_CONFIG_HOME for this one provider.
-    """
-    existing = [a for a in accounts if a["provider"] == "cursor"]
-    if any(a.get("windows") and a.get("status") in ("live", "cached") for a in existing):
+
+def from_copilot_user(data, now=None):
+    """Monthly windows from GitHub's Copilot entitlement document (the one the IDEs and the
+    Copilot CLI read). Unlimited quotas and quotas the plan does not include are skipped."""
+    now = now or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    reset = data.get("quota_reset_date_utc") or (f"{data['quota_reset_date']}T00:00:00Z" if data.get("quota_reset_date") else None)
+    if reset:
+        reset = datetime.fromisoformat(reset.replace("Z", "+00:00")).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    windows = []
+    snapshots = data.get("quota_snapshots") or {}
+    for key, scope in COPILOT_QUOTAS.items():
+        snap = snapshots.get(key)
+        if not isinstance(snap, dict) or snap.get("unlimited") or not snap.get("entitlement"):
+            continue
+        remaining = snap.get("percent_remaining")
+        if remaining is None:
+            continue
+        window = _window("monthly", 100 - float(remaining), reset, seconds=2592000, scope=scope)
+        limit, left = snap.get("entitlement"), snap.get("remaining", snap.get("quota_remaining"))
+        window.update(limit=limit, remaining=left, used=None if left is None else limit - left,
+                      reset_text="resets " + (data.get("quota_reset_date") or "monthly"))
+        windows.append(window)
+    sku = data.get("access_type_sku")
+    return {"provider": "copilot", "account": data.get("login"), "plan": COPILOT_SKUS.get(sku, sku or data.get("copilot_plan")),
+            "status": "live" if windows else "unavailable",
+            "error": None if windows else "no limited Copilot quota on this plan",
+            "retrieved_at": now, "windows": windows, "balance": None, "source": "copilot-api"}
+
+
+def _github_token(env=None):
+    ok, out, _ = _run(["gh", "auth", "token"], timeout=20, env=env) if shutil.which("gh") else (False, "", "")
+    token = out.strip() if ok else ""
+    return token or os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+
+
+def collect_copilot_accounts(accounts, errors, env=None):
+    """GitHub Copilot monthly quotas, read with the signed-in gh token (AAO_QUOTA_COPILOT=0 disables).
+    A read replaces quota-cli's Copilot row; a failure leaves it in place."""
+    from orchestrator.config import Settings
+    from orchestrator.state import http_get_json
+
+    if Settings().get("AAO_QUOTA_COPILOT", "1") == "0":
         return accounts
-    if platform.system() != "Windows" or not os.environ.get("APPDATA") or not shutil.which("clanker-usage"):
+    token = _github_token(env)
+    if not token:
         return accounts
-    if tool_env.get("XDG_CONFIG_HOME"):
+    try:
+        data = http_get_json(COPILOT_USER, {"Authorization": f"token {token}", "Accept": "application/json",
+                                            "X-GitHub-Api-Version": "2025-04-01"}, timeout=20)
+        row = from_copilot_user(data)
+    except Exception as exc:  # network, 401/404 (no Copilot), or a changed document
+        errors["copilot-api"] = str(exc)
         return accounts
-    env = {**tool_env, "XDG_CONFIG_HOME": os.environ["APPDATA"]}
-    ok, text, error = _run(["clanker-usage", "cursor", "json", "--max-age", "300"], timeout=90, env=env)
-    doc = _json(text)
-    rows = from_clanker([doc]) if isinstance(doc, dict) else []
-    if rows:
-        accounts = [a for a in accounts if a not in existing] + rows
-    if not ok:
-        errors["cursor-usage"] = error or (rows[0].get("error") if rows else "Cursor quota read failed")
+    if row["windows"]:
+        accounts = [a for a in accounts if a["provider"] != "copilot" or a.get("aao_account")] + [row]
+    elif not any(a["provider"] == "copilot" for a in accounts):
+        accounts = accounts + [row]
+    return accounts
+
+
+WEB_READERS = {"muse": ("orchestrator.web_muse", "quota", "has_profile")}
+
+
+def collect_web_accounts(accounts, errors):
+    """Web subscriptions read from the site's own usage page in the saved browser profile
+    (AAO_QUOTA_WEB_TARGETS, default muse; `none` disables). Targets never logged in are skipped."""
+    import importlib
+
+    from orchestrator.config import Settings
+
+    for target in Settings().list("AAO_QUOTA_WEB_TARGETS", list(WEB_READERS)):
+        if target == "none":
+            break
+        if target not in WEB_READERS:
+            errors[f"{target}-web"] = "no web quota reader"
+            continue
+        module, read, signed_in = WEB_READERS[target]
+        driver = importlib.import_module(module)
+        if not getattr(driver, signed_in)():
+            continue
+        try:
+            row = getattr(driver, read)()
+        except Exception as exc:  # a broken page must not stop the other collectors
+            row = {"provider": target, "error": str(exc), "windows": []}
+        if row.get("windows"):
+            accounts = [a for a in accounts if a["provider"] != row["provider"]] + [row]
+        if row.get("error"):
+            errors[f"{target}-web"] = row["error"]
     return accounts
 
 

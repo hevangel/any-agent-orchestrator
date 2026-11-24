@@ -3,6 +3,7 @@
 | Suite | Command | What it touches |
 | --- | --- | --- |
 | Unit | `uv run pytest -q` | nothing outside the repo; synthetic pages and logs |
+| Media bridge unit tests | `uv run --extra grok-api pytest -q tests/test_media.py` | local HTTP test client and fixture files; no provider jobs |
 | End-to-end | `uv run pytest -m e2e` | real agents, machines and web apps; spends a few hundred tokens per case |
 | One e2e case | `uv run pytest -m e2e -k "ssh-brunhild-codex"` | |
 | Override the matrix | `AAO_E2E_MODES=herdr-agent AAO_E2E_CLIS=claude uv run pytest -m e2e` | environment beats `.env` |

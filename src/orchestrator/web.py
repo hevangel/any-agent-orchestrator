@@ -90,9 +90,13 @@ TARGETS = {
                           "button:has-text('Add ingredients')"],  # home, or a project page left open
              "settle": 12000,  # the home page loads slowly
              "chat": False},
+    "flow-music": {"url": "https://www.flowmusic.app/",
+                   "composer": ["[aria-label='Chat message']"], "chat": False},
     "muse": {"url": "https://muse.ai/", "composer": ["textarea[placeholder='Message']", "textarea",
                                                      "div[contenteditable='true']"], "chat": True},
     "zai": {"url": "https://chat.z.ai/", "composer": ["textarea", "div[contenteditable='true']"], "chat": True},
+    # The site opens a paired computer's task list. Existing tasks are selected in the UI.
+    "autoclaw": {"url": "https://autoclaw-remote-web.z.ai/", "chat": False},
     # Codex is a mode of chatgpt.com (web_codex.py, `aao codex`); same account, so it shares the
     # chatgpt profile and browser session. Here only the login check.
     "codex-cloud": {"url": "https://chatgpt.com/", "profile": "chatgpt",
@@ -141,7 +145,7 @@ PAGE_SCRIPT = r"""async page => {
     return JSON.stringify({ loggedIn: true, ok: false, blocked: true, url, reason: 'Google is showing its "unusual traffic" check; a human must clear it in the browser' });
   if (!composer) return JSON.stringify({ loggedIn: false, url, reason: 'no chat box (logged out or page changed)' });
   // Several sites let guests chat; a visible "Sign in" / "Log in" control means we are a guest.
-  const signIn = /^\s*(sign in|log in|login|sign up|get started)\s*$/i;
+  const signIn = /^\s*(sign in|log in|login|sign up|get started|continue with google)\s*$/i;
   const guest = await page.getByRole('button', { name: signIn }).or(page.getByRole('link', { name: signIn }))
     .first().isVisible().catch(() => false);
   if (guest) return JSON.stringify({ loggedIn: false, guest: true, url, reason: 'guest session (sign-in button visible)' });
@@ -260,6 +264,10 @@ PAGE_SCRIPT = r"""async page => {
   // 2. wait for the reply: a new assistant turn, no busy marker, and text unchanged over two polls
   const deadline = started + cfg.timeoutMs;
   let reply = '', previous = null, stage = 'reply';
+  const replyFields = text => {
+    const header = cfg.reasoningHeader && text.match(/^Thought for\s+[^\n]*\n+/i);
+    return header ? { reply: text.slice(header[0].length).trim(), thinking: header[0].trim() } : { reply: text };
+  };
   while (Date.now() < deadline) {
     await page.waitForTimeout(1000);
     if (!cfg.assistant) {  // site not studied yet: fall back to the whole page text
@@ -271,17 +279,18 @@ PAGE_SCRIPT = r"""async page => {
     if (await anyVisible(cfg.busy)) { stage = 'streaming'; previous = null; continue; }
     reply = await lastReply();
     if (reply && reply === previous) {
-      const matched = cfg.expect ? new RegExp(cfg.expect).test(reply) : true;
+      const fields = replyFields(reply);
+      const matched = cfg.expect ? new RegExp(cfg.expect).test(fields.reply) : true;
       // a task's status line (gemini Task: "Complete", or a state that needs the human)
       const status = cfg.status ? await page.locator(cfg.status).last().innerText().then(s => s.trim(), () => null) : null;
-      return JSON.stringify({ loggedIn: true, ok: matched, url: page.url(), reply, seconds: (Date.now() - started) / 1000,
+      return JSON.stringify({ loggedIn: true, ok: matched, url: page.url(), ...fields, seconds: (Date.now() - started) / 1000,
                               ...(status ? { taskStatus: status } : {}),
                               ...(matched ? {} : { reason: 'reply does not match ' + cfg.expect }) });
     }
     previous = reply; stage = 'settling';
   }
   return JSON.stringify({ loggedIn: true, ok: false, url: page.url(), stage, reason: 'timed out',
-                          reply: cfg.assistant ? reply : undefined, tail: cfg.assistant ? undefined : reply.slice(-400) });
+                          ...(cfg.assistant ? replyFields(reply) : { tail: reply.slice(-400) }) });
 }"""
 
 
@@ -362,6 +371,10 @@ def _run_page(target, prompt=None, expect=None, timeout_s=120, settle_ms=4000, p
     """One page check or prompt turn. `url` opens that page (e.g. an existing chat) instead of a new chat.
     `files` (local paths) and `repo` (GitHub URL) are attached first; `mode` picks the composer mode."""
     cfg = TARGETS[target]
+    if target == "autoclaw":
+        from orchestrator import web_autoclaw
+
+        return web_autoclaw.page("status", passive=passive)
     if passive and prompt:
         raise ValueError("a passive page check cannot send a prompt")
     if (files or repo) and not cfg.get("attach"):
@@ -381,6 +394,7 @@ def _run_page(target, prompt=None, expect=None, timeout_s=120, settle_ms=4000, p
                "expect": expect, "timeoutMs": timeout_s * 1000, "settleMs": settle_ms, "passive": passive,
                "reuse": bool(url),  # an existing chat already open may be used as it is
                "files": paths, "repo": repo, "composeMode": mode.capitalize() if mode else None,
+               "reasoningHeader": target == "grok",
                **{k: cfg.get(k) for k in ("send", "user", "assistant", "busy", "strip", "mode", "status", "segment", "attach", "pace")}}
     return run_script(target, PAGE_SCRIPT.replace("__CFG__", json.dumps(payload)), timeout_s + 60)
 
@@ -447,10 +461,17 @@ def login(target, wait_minutes=15, settings=None):
         release(target)
 
 
-def ask(target, prompt, expect, timeout_s=120, settings=None, screenshot_path=None, chat=None,
+def ask(target, prompt, expect=None, timeout_s=120, settings=None, screenshot_path=None, chat=None,
         files=None, repo=None, mode=None):
     """Send one prompt; `chat` (id, URL or exact title) continues that chat instead of starting a new one.
     `files` / `repo` attach local files / a GitHub repository first (gemini); `mode` is chat or task (gemini)."""
+    if target == "autoclaw":
+        from orchestrator import web_autoclaw
+
+        if files or repo or mode:
+            raise ValueError("AutoClaw accepts text prompts only")
+        return web_autoclaw.control("ask", chat=chat, prompt=prompt, expect=expect,
+                                    timeout_s=timeout_s, settings=settings, screenshot_path=screenshot_path)
     ok, _, err = open_target(target, settings=settings)
     if not ok:
         return {"target": target, "ok": False, "error": err}

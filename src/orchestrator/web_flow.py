@@ -6,6 +6,9 @@
     uv run aao flow download <project> <media> [--to DIR] [--quality original|gif|1080p|4k]
     uv run aao flow options [--project P]                 # the agent's settings and every choice they offer
     uv run aao flow upload <project> <file>...            # add reference images/videos to the project (free)
+    uv run aao flow new-character <project> --name NAME (--face-prompt TEXT | --face-image FILE)
+    uv run aao flow edit-character <project> <character> [character options]
+    uv run aao flow read-character <project> <character>
     uv run aao flow delete <project> --yes                # permanent: clips, ingredients and prompts go
 
 <project> is a project id (uuid), its URL or its exact title. <media> is the 1-based index shown by
@@ -13,8 +16,8 @@
 `gemini` login, so it shares that profile and browser session (`aao web login gemini`).
 
 Credits: reading, creating, renaming, downloading at the original size and deleting cost nothing.
-Generating media (the project's agent) and upscaled downloads (1080p, 4K) spend Google AI credits;
-this module never generates, and upscales only when asked with --quality (see spec/web_interfaces.md).
+Use ``aao web image flow`` or ``aao web video flow`` for direct generation. Generation and
+upscaled downloads can spend Google AI credits. Upscales require an explicit --quality.
 """
 
 import json
@@ -74,7 +77,7 @@ OPTIONS = {
 # Download submenu of a media's "More options": label -> (cost note, free)
 QUALITIES = {
     "gif": {"menu": r"^270p", "label": "Animated GIF (270p)", "free": True},
-    "original": {"menu": r"^720p", "label": "Original size (720p)", "free": True},
+    "original": {"menu": r"\bOriginal size\b", "label": "Original size", "free": True, "direct": True},
     "1080p": {"menu": r"^1080p", "label": "Upscaled 1080p (5 credits)", "free": False},
     "4k": {"menu": r"^4K", "label": "Upscaled 4K (credits)", "free": False},
 }
@@ -89,6 +92,14 @@ SCRIPT = r"""async page => {
       if (!await page.getByText(d.text).first().isVisible().catch(() => false)) continue;
       await page.getByRole('button', { name: d.button, exact: true }).first().click({ timeout: 3000 }).catch(() => {}); await wait(400);
     }
+    const updates = page.getByRole('dialog', { name: "What's new", exact: true });
+    if (!await updates.isVisible()) return;
+    const start = updates.getByRole('button', { name: 'Get started', exact: true });
+    const next = updates.frameLocator('iframe').getByRole('button', { name: 'Next', exact: true });
+    for (let i = 0; i < 8 && !(await start.isEnabled()); i++) {
+      await next.click({ timeout: 3000 });
+    }
+    await start.click({ timeout: 3000 });
   };
   const goto = async (url, ready) => {
     if (page.url().split(/[?#]/)[0] !== url) await page.goto(url, { waitUntil: 'domcontentloaded' });
@@ -125,6 +136,157 @@ SCRIPT = r"""async page => {
     throw Object.assign(new Error(hit.length ? 'several projects are titled "' + ref + '"; use the id' : 'no project titled "' + ref + '"'), { choices: all.map(p => p.title + '  ' + p.id) });
   };
   const openProject = async id => goto(r.projectUrl.replace('{id}', id), 'button[aria-label="Add media menu"], button:has-text("Add ingredients")');
+  const openCharacterBuilder = async project => {
+    const id = await resolveProject(project);
+    await goto(r.projectUrl.replace('{id}', id) + '/character',
+      'button[aria-label="Start generation"], button:has-text("Add from project")');
+  };
+  const uuid = '[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}';
+  const editorPath = new RegExp('/character/(' + uuid + ')/?$', 'i');
+  const button = name => page.getByRole('button', { name, exact: typeof name === 'string' });
+  const visible = locator => locator.filter({ visible: true });
+  const slot = name => button(name).or(page.getByRole('tab', { name }));
+  const characterName = () => page.getByRole('textbox', { name: 'Character name', exact: true });
+  const characterInfo = () => page.getByRole('textbox', { name: /^Character (personality|info)(\s*\(optional\))?$/i });
+  const picture = () => visible(page.getByRole('img', { name: 'Generated character image', exact: true })).first();
+  const imageUrl = () => picture().evaluateAll(images => images[0]?.currentSrc || null);
+  const bodySlot = () => visible(slot(/^(Create body|Body)$/i).or(
+    page.locator('flow-slot-chip-button:has(mat-icon:text-is("accessibility_new")) button'))).first();
+  const faceSlot = () => visible(slot(/^(Portrait|Face)$/i)).first();
+  const waitForEditor = (timeout = cfg.timeoutMs) => page.waitForURL(url => editorPath.test(url.pathname), { timeout });
+  const openCharacter = async () => {
+    const ref = cfg.character;
+    const project = await resolveProject(cfg.project);
+    const url = r.projectUrl.replace('{id}', project);
+    const link = ref.split(/[?#]/)[0].match(new RegExp('/project/([^/]+)/character/(' + uuid + ')/?$', 'i'));
+    const id = ref.match(new RegExp('^' + uuid + '$', 'i'))?.[0] || link?.[2];
+    if (link && link[1] !== project) throw new Error('Character URL belongs to a different Flow project');
+    if (id) {
+      await goto(url + '/character/' + id, 'input[aria-label="Character name"], input[placeholder="Character name"], .ProseMirror');
+    } else {
+      await openProject(project);
+      const nav = page.getByRole('navigation', { name: 'Project navigation' });
+      await nav.locator('button, a').filter({ hasText: /\bCharacters\s*$/ }).click();
+      const cards = page.locator('flow-character-tile');
+      await cards.first().waitFor({ timeout: 4000 }).catch(() => {});
+      const names = await cards.evaluateAll(items => items.map(card => {
+        const copy = card.cloneNode(true);
+        for (const icon of copy.querySelectorAll('mat-icon, i.google-symbols')) icon.remove();
+        return (copy.textContent || '').replace(/\s+/g, ' ').trim();
+      }));
+      const matches = names.map((name, index) => ({ name, index })).filter(item => item.name === ref);
+      if (matches.length !== 1) throw new Error(matches.length
+        ? 'Several Flow characters are named "' + ref + '"; use the ID or editor URL'
+        : 'No Flow character named "' + ref + '" in this project');
+      await cards.nth(matches[0].index).click();
+    }
+    await waitForEditor();
+    await characterName().waitFor({ timeout: 15000 });
+  };
+  const waitForPicture = async (previous, deadline = Date.now() + cfg.timeoutMs) => {
+    while (Date.now() < deadline) {
+      const ready = await picture().evaluateAll(images => {
+        const img = images[0];
+        return img?.complete && img.naturalWidth > 0 ? img.currentSrc : null;
+      });
+      if (ready && ready !== previous) return;
+      await wait(400);
+    }
+    throw new Error('Timed out waiting for the new character image in Flow');
+  };
+  const submitCharacterPrompt = async prompt => {
+    await visible(page.locator('.ProseMirror[contenteditable="true"]')).last().fill(prompt, { timeout: 15000 });
+    await button(/^(Start generation|Generate( image)?)$/i).click({ timeout: 15000 });
+  };
+  const performanceField = () => visible(page.getByRole('textbox', { name: /^(Voice performance|Customize performance)$/i })
+    .or(page.getByPlaceholder(/^(Voice performance|Customize performance)$/i))).first();
+  const voiceCard = () => visible(page.locator('flow-voice-ingredient-chip, flow-voice-card, [aria-label="Selected voice"]')).first();
+  const voiceEdit = () => visible(button(/^(Edit voice|Change voice|Edit)$/i)
+    .or(page.locator('button:has(mat-icon:text-is("voice_selection"))'))).first();
+  const setCharacterVoice = async () => {
+    const picker = visible(button('Select a voice')).or(voiceEdit()).first();
+    await picker.click({ timeout: 15000 });
+    const voices = page.getByRole('listbox', { name: 'Asset list', exact: true });
+    const options = voices.getByRole('option');
+    await options.first().waitFor({ timeout: 10000 });
+    const escaped = cfg.voice.replace(/[.*+?^$(){}|[\]\\]/g, '\\$&');
+    const voice = voices.getByRole('option', { name: new RegExp('^' + escaped + '(?:\\s|$)', 'i') });
+    if (await voice.count() !== 1) {
+      throw Object.assign(new Error('Flow could not match one voice named "' + cfg.voice + '"'),
+        { choices: (await options.allInnerTexts()).map(label => label.trim()) });
+    }
+    await voice.click();
+    const add = button(/^Add to character$/i);
+    if (!cfg.voiceDescription) {
+      const selectedName = (await voice.innerText()).split('\n').map(s => s.trim())
+        .find(s => s.toLowerCase() === cfg.voice.toLowerCase()) || cfg.voice;
+      await add.click();
+      await add.waitFor({ state: 'hidden', timeout: 15000 });
+      return { voice: selectedName };
+    }
+    const customName = cfg.voiceName ?? (await characterName().inputValue()) + ' Voice';
+    if (!await performanceField().isVisible()) {
+      await button(/^(Customize performance|Create new voice)$/i).click({ timeout: 10000 });
+    }
+    await performanceField().fill(cfg.voiceDescription, { timeout: 15000 });
+    const voiceName = visible(page.getByRole('dialog').getByRole('textbox', { name: /^(Name|Voice name)$/i })
+      .or(page.getByPlaceholder(/^(Name|Voice name)$/i))).first();
+    await voiceName.fill(customName, { timeout: 15000 });
+    const save = button(/^Save new voice$/i);
+    if (!await save.isEnabled({ timeout: 10000 })) {
+      await button(/^(Preview|Sync)$/i).click({ timeout: 10000 });
+    }
+    await save.click({ timeout: cfg.timeoutMs });
+    if (await add.waitFor({ timeout: 5000 }).then(() => true, () => false)) {
+      const exactName = customName.replace(/[.*+?^$(){}|[\]\\]/g, '\\$&');
+      const option = voices.getByRole('option', { name: new RegExp('^' + exactName + '(?:\\s|$)') });
+      await option.click({ timeout: 10000 });
+      await add.click({ timeout: 15000 });
+      await add.waitFor({ state: 'hidden', timeout: 15000 });
+    } else if ((await readVoice()).voice !== customName) {
+      throw new Error('Flow saved the custom voice but did not confirm it was attached to the character');
+    }
+    return { voice: customName, voice_description: cfg.voiceDescription };
+  };
+  const readVoice = async () => {
+    if (await button('Select a voice').isVisible()) return { voice: null, voice_description: null };
+    const card = voiceCard();
+    const edit = voiceEdit();
+    const region = await card.isVisible() ? card : edit.locator('..');
+    const lines = await region.isVisible() ? (await region.innerText()).split('\n').map(s => s.trim()) : [];
+    const voice = lines.find(label => label && !/^(voice|edit|change voice|edit voice|play|play_arrow|voice_selection)$/i.test(label));
+    let description = await performanceField().isVisible() ? await performanceField().inputValue() : null;
+    if (cfg.op === 'character-read' && !description && await edit.isVisible()) {
+      await edit.click({ timeout: 5000 });
+      const dialog = visible(page.getByRole('dialog')).last();
+      try {
+        if (await performanceField().isVisible()) description = await performanceField().inputValue();
+      } finally {
+        const close = dialog.getByRole('button', { name: /^(Close|Cancel)$/i }).first();
+        if (await close.isVisible()) await close.click();
+        else await page.keyboard.press('Escape');
+      }
+    }
+    return { voice: voice || null, voice_description: description || null };
+  };
+  const readCharacter = async () => {
+    const url = page.url().split(/[?#]/)[0];
+    const name = await characterName().inputValue({ timeout: 15000 });
+    const infoBox = characterInfo();
+    const info = await infoBox.count() ? await infoBox.inputValue() : null;
+    const voice = await readVoice();
+    const face = faceSlot();
+    if (await face.isVisible()) await face.click();
+    const faceUrl = await imageUrl();
+    const body = visible(slot(/^Body$/i)).first();
+    let bodyUrl = null;
+    if (await body.isVisible()) {
+      await body.click();
+      bodyUrl = await imageUrl();
+      if (await face.isVisible()) await face.click();
+    }
+    return { id: url.match(editorPath)[1], name, url, info, ...voice, face_url: faceUrl, body_url: bodyUrl };
+  };
   const tiles = () => page.evaluate(({ sel, kinds }) => [...document.querySelectorAll(sel)].map((t, i) => {
     const kindEl = [...t.querySelectorAll('*')].find(e => kinds[e.tagName.toLowerCase()]);
     const img = t.querySelector('img');
@@ -139,11 +301,45 @@ SCRIPT = r"""async page => {
     await wait(1500);
     return { id: projectId(), url: page.url(), title, media: await tiles() };
   };
+  const createProject = async title => {
+    await homeReady();
+    await page.getByRole('button', { name: /New project/ }).click();
+    await page.waitForURL(/\/project\//, { timeout: 20000 });
+    await page.locator('button[aria-label="Add media menu"], button:has-text("Add ingredients")').first().waitFor({ timeout: 30000 });
+    await dismiss();
+    if (title) {
+      const textbox = page.getByRole('textbox', { name: 'Editable text' });
+      await textbox.fill(title);
+      await textbox.press('Enter');
+    }
+  };
   const pickTile = async ref => {
     const all = await tiles();
     let hit = /^\d+$/.test(String(ref)) ? all.filter(t => t.index === Number(ref)) : all.filter(t => t.name === ref);
     if (hit.length !== 1) throw Object.assign(new Error(hit.length ? 'several media are named "' + ref + '"; use the index' : 'no media "' + ref + '"'), { choices: all.map(t => t.index + '  ' + t.type + '  ' + t.name) });
     return page.locator(r.tile).nth(hit[0].index - 1);
+  };
+  const downloadTile = async (tile, quality, timeout) => {
+    await tile.hover();
+    await tile.getByRole('button', { name: 'More options', exact: true }).click();
+    const download = page.getByRole('menuitem', { name: 'Download', exact: true });
+    const choice = page.getByRole('menuitem', { name: new RegExp(quality.menu, 'i') }).first();
+    const saved = page.waitForEvent('download', { timeout });
+    const select = async () => {
+      await download.click();
+      const submenu = await Promise.race([
+        saved.then(() => false),
+        choice.waitFor({ timeout: Math.min(8000, timeout) }).then(() => true, () => {
+          throw new Error('No ' + quality.label + ' download for this media');
+        }),
+      ]);
+      if (submenu) await choice.click();
+      else if (!quality.direct) throw new Error('No ' + quality.label + ' download for this media');
+    };
+    const [file] = await Promise.all([saved, select()]);
+    const path = cfg.to.replace(/\/$/, '') + '/' + file.suggestedFilename();
+    await file.saveAs(path);
+    return { path, file: file.suggestedFilename(), quality: quality.label };
   };
   const toggles = () => page.evaluate(({ sel, group }) => [...document.querySelectorAll(group)].map(g => (
     [...g.querySelectorAll(sel)].map(b => ({ label: b.innerText.trim().split('\n').pop(), selected: b.getAttribute('aria-checked') === 'true' })))), { sel: r.toggle, group: r.toggleGroup });
@@ -155,17 +351,123 @@ SCRIPT = r"""async page => {
       }
       case 'projects': return out({ ok: true, projects: await projects() });
       case 'new': {
-        await homeReady();
-        await page.getByRole('button', { name: /New project/ }).click();
-        for (let i = 0; i < 40 && !projectId(); i++) await wait(500);
-        if (!projectId()) return fail('no project URL after "New project"', { url: page.url() });
-        await page.locator('button[aria-label="Add media menu"], button:has-text("Add ingredients")').first().waitFor({ timeout: 30000 });
-        await wait(1500); await dismiss();
-        if (cfg.title) {
-          const tb = page.getByRole('textbox', { name: 'Editable text' });
-          await tb.fill(cfg.title); await page.keyboard.press('Enter'); await wait(1500);
-        }
+        await createProject(cfg.title);
         return out({ ok: true, ...(await projectInfo()) });
+      }
+      case 'character-read': {
+        await openCharacter();
+        return out({ ok: true, character: await readCharacter() });
+      }
+      case 'character-open': {
+        if (cfg.character) await openCharacter();
+        else await openCharacterBuilder(cfg.project);
+        return out({ ok: true, url: page.url() });
+      }
+      case 'character-image': {
+        if (cfg.slot === 'body') {
+          await waitForEditor();
+          await waitForPicture(null, Date.now() + 15000);
+          const face = await imageUrl();
+          const body = bodySlot();
+          const seed = visible(page.locator('flow-ingredient-chip:has(img), flow-generated-media-card:has(img):has(mat-icon:text-is("cancel"))'));
+          const seedsBefore = await seed.count();
+          await body.click({ timeout: 15000 });
+          const switched = async () => await body.getAttribute('aria-selected') === 'true'
+            || await body.getAttribute('aria-pressed') === 'true'
+            || await imageUrl() !== face || await seed.count() > seedsBefore;
+          const deadline = Date.now() + 10000;
+          while (!await switched() && Date.now() < deadline) await wait(200);
+          if (!await switched()) {
+            return fail('Flow did not switch to the body editor', { url: page.url() });
+          }
+        } else if (cfg.existing && await faceSlot().isVisible()) {
+          await faceSlot().click();
+        }
+        const previous = await imageUrl();
+        if (cfg.upload) {
+          await visible(button(/^(Upload( (image|media|portrait|body))?|Replace image)$/i)).first().click({ timeout: 15000 });
+        } else {
+          const deadline = Date.now() + cfg.timeoutMs;
+          await submitCharacterPrompt(cfg.prompt);
+          await waitForEditor(Math.max(1, deadline - Date.now()));
+          await waitForPicture(previous, deadline);
+        }
+        return out({ ok: true, previous, url: page.url() });
+      }
+      case 'character-image-wait': {
+        const deadline = Date.now() + cfg.timeoutMs;
+        await waitForEditor();
+        await waitForPicture(cfg.previous, deadline);
+        return out({ ok: true, url: page.url() });
+      }
+      case 'character-save': {
+        await waitForEditor();
+        if (cfg.name !== null) {
+          const name = characterName();
+          await name.fill(cfg.name, { timeout: 15000 });
+          await name.press('Enter');
+        }
+        if (cfg.info !== null) await characterInfo().fill(cfg.info, { timeout: 15000 });
+        const voice = cfg.voice ? await setCharacterVoice() : {};
+        const character = { ...await readCharacter(), ...voice };
+        await button(/^Done( editing)?$/i).click({ timeout: 15000 });
+        await page.waitForURL(u => !editorPath.test(u.pathname), { timeout: 15000 });
+        return out({ ok: true, character });
+      }
+      case 'generate-prepare': {
+        await createProject(cfg.title);
+        const composer = page.getByRole('textbox', { name: 'What do you want to create?', exact: true });
+        await composer.waitFor({ timeout: 30000 });
+        const agent = page.getByRole('button', { name: 'Flow Agent', exact: true });
+        if (await agent.getAttribute('aria-pressed') === 'true') await agent.click();
+        if (await agent.getAttribute('aria-pressed') !== 'false') return fail('Flow is not in direct generation mode');
+        const settings = page.getByRole('button', { name: 'Settings trigger', exact: true });
+        await settings.click();
+        const mode = { name: cfg.kind === 'image' ? 'Image' : 'Video', exact: true };
+        const one = { name: 'x1', exact: true };
+        await page.getByRole('radio', mode).click();
+        await page.getByRole('radio', { ...mode, checked: true }).waitFor({ timeout: 10000 });
+        if (cfg.kind === 'video' && cfg.references) {
+          const ingredients = { name: 'Ingredients', exact: true };
+          await page.getByRole('radio', ingredients).click();
+          await page.getByRole('radio', { ...ingredients, checked: true }).waitFor({ timeout: 10000 });
+        }
+        await page.getByRole('radio', one).click();
+        await page.getByRole('radio', { ...one, checked: true }).waitFor({ timeout: 10000 });
+        if (cfg.aspectRatio) {
+          const ratio = { name: cfg.aspectRatio, exact: true };
+          await page.getByRole('radio', ratio).click();
+          await page.getByRole('radio', { ...ratio, checked: true }).waitFor({ timeout: 10000 });
+        }
+        await settings.click();
+        await composer.fill(cfg.prompt);
+        return out({ ok: true, url: page.url() });
+      }
+      case 'generate-reference-open': {
+        const images = page.locator(r.tile).filter({ has: page.locator('flow-image-tile img') });
+        const before = await images.count();
+        await page.getByRole('button', { name: r.addMenu, exact: true }).click();
+        await page.getByRole('menuitem', { name: 'Upload', exact: true }).click();
+        return out({ ok: true, before });
+      }
+      case 'generate-reference-add': {
+        const images = page.locator(r.tile).filter({ has: page.locator('flow-image-tile img') });
+        await images.nth(cfg.before).waitFor({ timeout: 30000 });
+        const ingredient = images.first();
+        const attached = page.getByRole('button', { name: 'Ingredient', exact: true });
+        const previous = await attached.count();
+        await ingredient.hover();
+        await ingredient.getByRole('button', { name: 'More options', exact: true }).click();
+        await page.getByRole('menuitem', { name: 'Add to prompt', exact: true }).click();
+        if (cfg.kind === 'video') await attached.nth(previous).waitFor({ timeout: 10000 });
+        return out({ ok: true });
+      }
+      case 'generate': {
+        const outputTiles = page.locator(r.tile).filter({ has: page.locator('flow-' + cfg.kind + '-tile img') });
+        const before = await outputTiles.count();
+        await page.getByRole('button', { name: 'Start generation', exact: true }).click();
+        await outputTiles.nth(before).waitFor({ timeout: cfg.timeoutMs });
+        return out({ ok: true, ...(await downloadTile(outputTiles.first(), cfg.quality, 30000)), url: page.url() });
       }
       case 'read': {
         await openProject(await resolveProject(cfg.project));
@@ -178,20 +480,33 @@ SCRIPT = r"""async page => {
         await openProject(await resolveProject(cfg.project));
         await page.locator(r.tile).first().waitFor({ timeout: 15000 });
         const tile = await pickTile(cfg.media);
-        await tile.hover(); await wait(500);
-        await tile.getByRole('button', { name: 'More options' }).click();
-        await page.getByRole('menuitem', { name: /Download/ }).click(); await wait(900);
-        const choice = page.getByRole('menuitem', { name: new RegExp(cfg.quality.menu) });
-        if (!await choice.count()) { await page.keyboard.press('Escape'); return fail('no "' + cfg.quality.label + '" download for this media (images have no GIF)'); }
-        const saved = page.waitForEvent('download', { timeout: cfg.timeoutMs });
-        await choice.first().click();
-        const d = await saved;
-        const path = cfg.to.replace(/\/$/, '') + '/' + d.suggestedFilename();
-        await d.saveAs(path);
-        return out({ ok: true, path, file: d.suggestedFilename(), quality: cfg.quality.label });
+        if (cfg.qualityKey === 'gif' && await tile.locator('flow-image-tile').count()) {
+          return fail('Flow offers GIF downloads for videos only');
+        }
+        return out({ ok: true, ...(await downloadTile(tile, cfg.quality, cfg.timeoutMs)) });
       }
       case 'options': {
         await openProject(await resolveProject(cfg.project));
+        const direct = page.getByRole('button', { name: 'Settings trigger', exact: true });
+        if (await direct.isVisible()) {
+          await direct.click();
+          try {
+            const family = page.getByRole('button', { name: 'Select model family', exact: true });
+            await family.waitFor({ timeout: 5000 });
+            const groups = await toggles();
+            const current = (await family.innerText()).trim().split('\n')[0];
+            await family.click();
+            const items = page.getByRole('menuitem').or(page.getByRole('option')).filter({ visible: true });
+            await items.first().waitFor({ timeout: 3000 }).catch(() => {});
+            const choices = (await items.allTextContents()).map(label => label.trim()).filter(Boolean);
+            return out({ ok: true, mode: 'direct', toggles: groups, dropdowns: [{ current, choices }] });
+          } finally {
+            await page.keyboard.press('Escape');
+            if (await page.getByRole('button', { name: 'Select model family', exact: true }).isVisible()) {
+              await direct.click();
+            }
+          }
+        }
         await page.locator(r.tile).first().waitFor({ timeout: 8000 }).catch(() => {});
         const s = page.getByRole('button', { name: r.settingsButton, exact: true }).filter({ visible: true });
         await s.last().click(); await wait(1200);
@@ -246,7 +561,7 @@ SCRIPT = r"""async page => {
     }
   } catch (e) {
     if (e && e.login) return JSON.stringify({ loggedIn: false, reason: 'login page' });
-    return fail(String(e && e.message || e).split('\n')[0], e && e.choices ? { choices: e.choices } : {});
+    return fail(String(e && e.message || e).split('\n')[0], { url: page.url(), ...(e?.choices ? { choices: e.choices } : {}) });
   }
 }"""
 
@@ -265,17 +580,127 @@ def session(op, settings=None, timeout_s=180, **args):
     try:
         return {"target": TARGET, **run(op, timeout_s=timeout_s, **args)}
     finally:
-        web.release(TARGET)
+        web.release(TARGET, settings=settings)
 
 
-def download(project, media, to="temp/flow", quality="original", settings=None):
+def download(project, media, to="temp/flow", quality="original", settings=None, timeout_s=180):
     """Save one media to a folder. Upscaled qualities spend credits, so they must be named explicitly."""
     if quality not in QUALITIES:
         raise ValueError(f"quality must be one of {', '.join(QUALITIES)}")
     folder = Path(to).expanduser().resolve()
     folder.mkdir(parents=True, exist_ok=True)
-    return session("download", settings=settings, project=project, media=str(media),
-                   to=folder.as_posix(), quality=QUALITIES[quality])
+    return session("download", settings=settings, timeout_s=timeout_s, project=project, media=str(media),
+                   to=folder.as_posix(), quality=QUALITIES[quality], qualityKey=quality)
+
+
+def create_character(project, name, *, prompt=None, image=None, **options):
+    """Create a character. The original prompt and image arguments refer to its face."""
+    return _change_character(project, None, name=name, face_prompt=prompt, face_image=image, **options)
+
+
+def edit_character(project, character, **options):
+    """Update the supplied fields of an existing character."""
+    return _change_character(project, character, **options)
+
+
+def read_character(project, character, *, settings=None, timeout_s=180):
+    """Read the saved character's details and available reference image URLs."""
+    if timeout_s <= 0:
+        return {"ok": False, "reason": "the Flow timeout must be positive"}
+    return session("character-read", project=project, character=character, settings=settings, timeout_s=timeout_s)
+
+
+def _change_character(project, character, *, name=None, face_prompt=None, face_image=None,
+                      body_prompt=None, body_image=None, info=None, voice=None,
+                      voice_description=None, voice_name=None, settings=None, timeout_s=180):
+    name = name.strip() if name is not None else None
+    face_prompt = (face_prompt or "").strip()
+    body_prompt = (body_prompt or "").strip()
+    voice = (voice or "").strip()
+    voice_description = (voice_description or "").strip()
+    voice_name = (voice_name or "").strip() or None
+    if timeout_s <= 0:
+        return {"ok": False, "reason": "the Flow timeout must be positive"}
+    if name == "" or (character is None and not name):
+        return {"ok": False, "reason": "provide a non-empty character name"}
+    if (face_prompt and face_image) or (body_prompt and body_image):
+        return {"ok": False, "reason": "provide one prompt or image per character slot"}
+    if character is None and not (face_prompt or face_image):
+        return {"ok": False, "reason": "provide a face prompt or face image"}
+    if voice_description and not voice:
+        return {"ok": False, "reason": "provide a base preset with --voice when customizing its performance"}
+    if voice_name and not voice_description:
+        return {"ok": False, "reason": "--voice-name requires --voice-description"}
+    if character is not None and name is None and info is None and not any(
+        (face_prompt, face_image, body_prompt, body_image, voice)
+    ):
+        return {"ok": False, "reason": "provide at least one character field to edit"}
+
+    sources = []
+    for slot, prompt, file in (("face", face_prompt, face_image), ("body", body_prompt, body_image)):
+        path = Path(file).expanduser().resolve() if file else None
+        if path and not path.is_file():
+            return {"ok": False, "reason": f"no such {slot} image: {file}"}
+        if prompt or path:
+            sources.append((slot, prompt, path))
+
+    ok, _, error = web.open_target(TARGET, settings=settings)
+    if not ok:
+        return {"target": TARGET, "ok": False, "error": error}
+    try:
+        opened = run("character-open", timeout_s=timeout_s, project=project, character=character)
+        if not opened.get("ok"):
+            return {"target": TARGET, **opened}
+        url = opened.get("url")
+        for slot, prompt, path in sources:
+            changed = run("character-image", timeout_s=timeout_s, slot=slot, existing=character is not None,
+                          prompt=prompt, upload=path is not None)
+            if not changed.get("ok"):
+                return {"target": TARGET, "url": url, **changed}
+            url = changed.get("url")
+            if path:
+                ok, output, error = web._pw(TARGET, "upload", path.as_posix(), timeout=timeout_s)
+                if not ok:
+                    return {"target": TARGET, "ok": False, "reason": f"{slot} image upload failed",
+                            "error": (error or output or "")[-300:], "url": url}
+                finished = run("character-image-wait", timeout_s=timeout_s, previous=changed["previous"])
+                if not finished.get("ok"):
+                    return {"target": TARGET, "url": url, **finished}
+                url = finished.get("url")
+        saved = run("character-save", timeout_s=timeout_s, name=name, info=info, voice=voice,
+                    voiceDescription=voice_description, voiceName=voice_name)
+        return {"target": TARGET, **saved} if saved.get("ok") else {"target": TARGET, "url": url, **saved}
+    finally:
+        web.release(TARGET, settings=settings)
+
+
+def generate(kind, prompt, directory, timeout_s=720, *, aspect_ratio=None, references=()):
+    """Start one direct generation in a dedicated project and save its original output."""
+    if kind not in {"image", "video"}:
+        raise ValueError("Flow media kind must be image or video")
+    directory = Path(directory).resolve()
+    ok, _, error = web.open_target(TARGET)
+    if not ok:
+        return {"target": TARGET, "ok": False, "error": error}
+    try:
+        result = run("generate-prepare", kind=kind, prompt=prompt, title=f"AAO {kind} {directory.name[-12:]}",
+                     aspectRatio=aspect_ratio, references=bool(references))
+        if not result.get("ok"):
+            return result
+        for path in references:
+            result = run("generate-reference-open", timeout_s=60)
+            if not result.get("ok"):
+                return result
+            uploaded, _, error = web._pw(TARGET, "upload", Path(path).resolve().as_posix(), timeout=120)
+            if not uploaded:
+                return {"ok": False, "reason": error or "Could not upload the Flow reference image"}
+            result = run("generate-reference-add", timeout_s=60, before=result["before"], kind=kind)
+            if not result.get("ok"):
+                return result
+        return {"target": TARGET, **run("generate", timeout_s=timeout_s, kind=kind, to=directory.as_posix(),
+                                        quality=QUALITIES["original"])}
+    finally:
+        web.release(TARGET)
 
 
 def upload(project, files, settings=None, timeout_s=180):

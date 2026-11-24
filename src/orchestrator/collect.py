@@ -70,10 +70,13 @@ def collect_usage(days=90):
     for row in data["rows"]:
         key = (row["day"], row["machine"], row["agent"], row["model"])
         cell = cube.setdefault(key, {"day": row["day"], "machine": row["machine"], "agent": row["agent"],
-                                     "model": row["model"], "cost_usd": 0.0, "priced": True}
+                                     "model": row["model"], "cost_usd": 0.0, "priced": True,
+                                     "requests": 0, "credits": 0.0}
                                | {f: 0 for f in usage.TOKEN_FIELDS})
         for f in usage.TOKEN_FIELDS:
             cell[f] += row[f]
+        cell["requests"] += row.get("requests", 0)
+        cell["credits"] = round(cell["credits"] + (row.get("credits") or 0), 6)
         if row["cost_usd"] is None:
             cell["priced"] = False
         else:

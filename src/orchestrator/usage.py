@@ -39,7 +39,8 @@ def collect(since=None, include_remote=True):
         if error:
             errors[machine] = error
         for row in machine_rows:
-            cost, source = book.cost(row)
+            # Credit-metered rows (Kiro) carry no tokens: nothing to price, never "unpriced".
+            cost, source = book.cost(row) if any(row.get(f) for f in TOKEN_FIELDS) else (0.0, "no-tokens")
             row = {**row, "machine": machine, "cost_usd": cost, "price_source": source}
             if cost is None:
                 unpriced[row["model"]] = unpriced.get(row["model"], 0) + sum(row[f] for f in TOKEN_FIELDS)
@@ -56,11 +57,13 @@ def summarize(rows):
         sess = sessions.setdefault(key, {f: 0 for f in TOKEN_FIELDS} | {
             "machine": row["machine"], "agent": row["agent"], "session": row["session"], "project": row.get("project"),
             "models": set(), "first_ts": row["first_ts"], "last_ts": row["last_ts"], "cost_usd": 0.0,
-            "unpriced_tokens": 0, "requests": 0})
+            "unpriced_tokens": 0, "requests": 0, "credits": 0.0})
         for field in TOKEN_FIELDS:
             day[field] += row[field]
             sess[field] += row[field]
         sess["requests"] += row.get("requests", 0)
+        sess["credits"] += row.get("credits") or 0
+        day["credits"] = day.get("credits", 0) + (row.get("credits") or 0)
         sess["models"].add(row["model"])
         sess["first_ts"] = min(sess["first_ts"], row["first_ts"])
         sess["last_ts"] = max(sess["last_ts"], row["last_ts"])
@@ -69,7 +72,8 @@ def summarize(rows):
         else:
             day["cost_usd"] += row["cost_usd"]
             sess["cost_usd"] += row["cost_usd"]
-    session_list = sorted(({**s, "models": sorted(s["models"]), "cost_usd": round(s["cost_usd"], 4)}
+    session_list = sorted(({**s, "models": sorted(s["models"]), "cost_usd": round(s["cost_usd"], 4),
+                            "credits": round(s["credits"], 4)}
                            for s in sessions.values()), key=lambda s: s["last_ts"], reverse=True)
     day_list = [{**d, "cost_usd": round(d["cost_usd"], 4)} for _, d in sorted(days.items())]
     return {"days": day_list, "sessions": session_list}

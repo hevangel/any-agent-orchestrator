@@ -39,6 +39,7 @@ This project needs **uv**, **playwright-cli** with **Google Chrome**, and **herd
 - `dashboard/index.html` — the dashboard page (no build step, no CDN); colors follow the dataviz reference palette with light and dark tokens.
 - `data/` — committed data: `api_prices.json` (public API prices with effective dates, updated by the `aao prices update` script and a daily GitHub Action) and `free_tokens.json` (updated by the daily data agent, [prompts/daily_data_update.md](prompts/daily_data_update.md)).
 - `state/` — collector snapshots and quota history, gitignored.
+- `workspace/` — optional local checkouts of managed project repositories; gitignored and not part of this repository's source. `workspace/project-location.json` is the checkout-local manifest mapping project IDs to `preferred` location IDs and `locations` (start with an empty list when no location is known). Checkout entries use `{"id":"local","kind":"checkout","machine":"local","path":"workspace\\<repo>"}` for a local path relative to this repository, or a Herdr/AAO machine label and that machine's native absolute path for a remote checkout. Cloud-session entries use `kind: "cloud-session"` with the provider, session ID, and URL instead of treating an ephemeral session as a stable filesystem path. Keep active dispatch run/session IDs in `state/dispatch/`; never put credentials in this manifest. Add an entry for each new project config.
 - `spec/` — design specs; read [design_philosophy.md](spec/design_philosophy.md) and the spec covering your task before changing behavior.
 - `mailbox/` — mailbox protocol (agent and admin procedures), copied verbatim from `hevangel/ai_agents/dropbox/`.
 - `external/` — **read-only reference submodules**: orchestration and web control (orca, mcp-web-llm, browser-harness, MuseBridge), quotas (quota, clanker-usage, llm-runway), token and cost tracking (ccusage, splunk-token-meter, tokenmeter). Never edit them, copy their code wholesale, or bump their pins as cleanup.
@@ -77,6 +78,11 @@ uv run aao web status --all               # which saved web logins still work
 uv run aao web ask claude --chat "<title|id>" --prompt "..."   # continue an existing chat
 uv run aao chats claude|claude-code-web list|sections|search <q>|pin|unpin|move <chat> <section> [--create]|unsection|new-section|delete-section   # chats / Code sessions (web_chats.py)
 uv run aao web ask gemini --mode chat|task [--file F ...] [--repo <GitHub URL>] --prompt "..."   # attach files (zip a folder) or a GitHub repo
+uv run aao web image chatgpt|flow|gemini|grok|muse --prompt "..." [--out DIR]
+uv run aao web video flow|gemini|grok|muse --prompt "..." [--reference FILE] [--out DIR]
+uv run aao web audio flow-music|grok|muse --prompt "..." [--out DIR]  # Muse also accepts --reference FILE
+uv run --extra grok-api aao media-serve   # ArtCraft and opt-in Craft AI bridge
+uv run aao grok image|video "<prompt>" [--ref NAME ..] [--pick generation:N] [--dry-run]|reference list|new|edit|delete|library generations|uploads|voices|template list|show|run <slug>|draw "<prompt>" --sketch F|canvas ["<prompt>"] [--canvas <url|id>] [--note T] [--list]   # Grok Imagine (web_grok.py)
 uv run aao chats gemini list [--notebook N] [--status 'Needs attention']|notebooks|search <q>|read <chat>|pin|unpin|move <chat> <notebook>|unnotebook|new-notebook|delete-notebook   # Gemini (web_chats_gemini.py)
 uv run aao chats grok list [--project P]|projects|search <q>|pin|unpin|move <chat> <project> [--create]|unproject|new-project|delete-project   # Grok chat + projects (web_chats_grok.py; reads via grok.com's own endpoints)
 uv run aao chats chatgpt list [--project P]|projects|search <q>|pin|unpin|move <chat> <project> [--create]|unproject|new-project|delete-project   # ChatGPT: groups are projects (web_chats_chatgpt.py)
@@ -84,7 +90,8 @@ uv run aao codex threads|read <t>|new --prompt .. [--env --work-in --permission 
 uv run aao codex attention [<t>] [--json]|answer <t> --choice <option|button>|--text <answer>   # questions are reported to the master agent; secrets never typed
 uv run aao code sessions|read <s>|send <s> --prompt ..|new --prompt .. [--repo --env --permission]|wait <s> [--wait]   # Claude Code on the web (web_code.py)
 uv run aao code projects|project <name>|project-send <name> --prompt ..   # Projects (beta)
-uv run aao flow status|projects|new [--title]|read <p> [--type]|download <p> <media> [--to --quality]|upload <p> <file>..|options|delete <p> --yes   # Google Flow (web_flow.py); generation not driven, upscales spend credits
+uv run aao flow status|projects|new [--title]|read <p> [--type]|download <p> <media> [--to --quality]|upload <p> <file>..|options|delete <p> --yes   # Google Flow projects and media; upscales spend credits
+uv run aao web quota muse [--json]        # read-only: Muse weekly limit and top-up tokens (also on the Quotas tab)
 uv run aao web close [--all]              # browsers stay open between commands (AAO_WEB_KEEP_OPEN=0 to close each time)
 uv run aao projects list|validate|status <id>      # managed projects (projects/*.json)
 uv run aao projects sync <id> [--dry-run]           # rebuild the owned-repo tree from live .gitmodules
@@ -97,7 +104,7 @@ uv run aao prices validate | lookup <model>
 uv run aao free-tokens validate
 ```
 
-Quota sources are optional external CLIs: `uv tool install clanker-usage`, `cargo install quota-cli`.
+Quotas are read from each agent's own `/usage` or `/status` screen through herdr; GitHub Copilot's monthly quotas come from GitHub with the signed-in `gh` token. `cargo install quota-cli` optionally adds Grok and Kimi.
 
 ### CLI agents (herdr)
 
@@ -120,6 +127,35 @@ playwright-cli -s=<target> snapshot                 # get element refs, then fil
 playwright-cli -s=<target> state-save               # persist the human's login
 ```
 
+### Gemini Notebook CLI (`nlm`)
+
+Prefer authenticating the [Gemini Notebook CLI](external/gemini-notebook-mcp-cli) through `playwright-cli` running installed Google Chrome. Reuse the signed-in Gemini Chrome profile when it belongs to the intended account. If it is already open, close that Playwright session before reopening the profile with a Chrome DevTools Protocol (CDP) port. The human signs in if Google prompts.
+
+Save this Playwright config as `temp/notebooklm-playwright-cdp.json` to expose CDP on loopback during login.
+
+```json
+{
+  "browser": {
+    "browserName": "chromium",
+    "launchOptions": {
+      "channel": "chrome",
+      "args": ["--remote-debugging-address=127.0.0.1", "--remote-debugging-port=18800"]
+    }
+  }
+}
+```
+
+Run from the repository root. Substitute the profile path if `AAO_WEB_PROFILE_DIR` is customized.
+
+```sh
+playwright-cli -s=notebooklm-cdp open https://notebook.google.com/ --browser=chrome --headed --persistent --profile="$HOME/.aao/browser-profiles/gemini" --config=temp/notebooklm-playwright-cdp.json
+uv tool run --from ./external/gemini-notebook-mcp-cli nlm login --provider openclaw --cdp-url http://127.0.0.1:18800 --profile playwright --storage protected
+playwright-cli -s=notebooklm-cdp close
+uv tool run --from ./external/gemini-notebook-mcp-cli nlm notebook list --profile playwright
+```
+
+The CLI calls its external CDP provider `openclaw`. After login, reuse `--profile playwright` for notebook and source commands. Chrome can stay closed while the saved login is valid.
+
 ## Docker credentials (optional container)
 
 Docker is optional: the orchestrator, tests and drivers must all work without it, and the `docker` driver mode and its e2e cases skip when the image is not built.
@@ -137,6 +173,7 @@ Follow `mailbox/AGENTS_MAILBOX.md` exactly: one immutable JSON file per registra
 ## Rules
 
 - Keep paths cross-platform (Windows and Linux); shell scripts need LF endings (`.gitattributes`).
+- After every code change, check and update the relevant documentation in the same change so it stays accurate to what the code supports.
 - Never automate entering passwords or 2FA on a web target; a human logs in once (`aao web login`) and the profile is persisted outside the repo.
 - herdr control is deterministic code in `drivers.py`, never an LLM call. Agents start in `AAO_PERMISSION_MODE` (auto by default, yolo optional); folder-trust and other known startup screens are answered only from `agents.json` `startup_forms` (literal match → fixed keys). Login screens are never answered.
 - Every pytest run is recorded in `tests/result/` (gitignored) and viewed with `tests/index.html`; give new e2e tests evidence through the `evidence` fixture.

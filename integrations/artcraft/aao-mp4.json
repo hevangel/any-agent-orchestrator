@@ -1,0 +1,95 @@
+{
+  "spec_version": 1,
+  "id": "aao-mp4",
+  "label": "AAO MP4",
+  "base": "http://127.0.0.1:8771/craft-ai/v1",
+  "auth": {
+    "kind": "bearer"
+  },
+  "probe": {
+    "method": "GET",
+    "path": "/health"
+  },
+  "models": [
+    {
+      "id": "flow",
+      "label": "Google Flow Video",
+      "capability": "video.generate",
+      "accepts": {
+        "prompt": 1
+      },
+      "requires": [
+        "prompt"
+      ]
+    },
+    {
+      "id": "gemini",
+      "label": "Gemini Video",
+      "capability": "video.generate",
+      "accepts": {
+        "prompt": 1
+      },
+      "requires": [
+        "prompt"
+      ]
+    },
+    {
+      "id": "grok",
+      "label": "Grok Imagine Video",
+      "capability": "video.generate",
+      "accepts": {
+        "prompt": 1
+      },
+      "requires": [
+        "prompt"
+      ]
+    },
+    {
+      "id": "muse",
+      "label": "Muse Video",
+      "capability": "video.generate",
+      "accepts": {
+        "prompt": 1
+      },
+      "requires": [
+        "prompt"
+      ]
+    }
+  ],
+  "flow": {
+    "kind": "queue",
+    "submit": {
+      "call": {
+        "method": "POST",
+        "path": "/jobs",
+        "body": {
+          "provider": "{model}",
+          "kind": "video",
+          "prompt": "{prompt}"
+        }
+      },
+      "job_id_at": "/id"
+    },
+    "poll": {
+      "call": {
+        "method": "GET",
+        "path": "/jobs/{job_id}"
+      },
+      "status_at": "/state",
+      "states": {
+        "pending": "queued",
+        "succeeded": "succeeded",
+        "failed": "failed"
+      },
+      "result": {
+        "at": "/result/data",
+        "as": "base64",
+        "media_type": "video/mp4"
+      }
+    }
+  },
+  "limits": {
+    "max_polls": 1800,
+    "max_seconds": 1800
+  }
+}

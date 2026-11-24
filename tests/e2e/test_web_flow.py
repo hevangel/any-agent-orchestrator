@@ -1,4 +1,4 @@
-"""Google Flow, read only plus one free download: list projects, read a project's media, read the agent
+"""Google Flow, read only plus one free download: list projects, read a project's media, read the
 options and save a media at its original size. Creates, generates and deletes nothing, so it spends
 no credits (`aao flow new` / `delete` were checked by hand).
 """
@@ -32,9 +32,15 @@ def test_web_flow_read_only(web_target, evidence, tmp_path):
 
         options = steps["options"] = web_flow.session("options", project=projects[0]["id"])
         assert options.get("ok"), options
-        assert {r["label"] for r in options["confirm"]} == {"Always", "Never"}, options["confirm"]
-        assert [len(g) for g in options["toggles"]] == [5, 4, 2, 4], options["toggles"]
-        assert len(options["dropdowns"]) == 2 and all(d["choices"] for d in options["dropdowns"]), options["dropdowns"]
+        if options.get("mode") == "direct":
+            groups = [{t["label"] for t in group} for group in options["toggles"]]
+            assert {"Image", "Video"} in groups, groups
+            assert any("x1" in group for group in groups), groups
+            assert len(options["dropdowns"]) == 1 and options["dropdowns"][0]["choices"], options["dropdowns"]
+        else:
+            assert {r["label"] for r in options["confirm"]} == {"Always", "Never"}, options["confirm"]
+            assert [len(g) for g in options["toggles"]] == [5, 4, 2, 4], options["toggles"]
+            assert len(options["dropdowns"]) == 2 and all(d["choices"] for d in options["dropdowns"]), options["dropdowns"]
 
         with_media = None
         for p in projects:

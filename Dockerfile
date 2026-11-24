@@ -25,10 +25,8 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
     && apt-get update && apt-get install -y --no-install-recommends gh \
     && rm -rf /var/lib/apt/lists/*
 
-# uv for Python tooling (the aao dashboard package and reference projects under external/ use it),
-# plus clanker-usage, the primary subscription-quota source for the Quotas dashboard
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
-    && /root/.local/bin/uv tool install clanker-usage
+# uv for Python tooling (the aao dashboard package and reference projects under external/ use it)
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # playwright-cli drives web chat UIs; install Chromium plus its OS libraries with the
 # playwright-core version bundled inside @playwright/cli so the two always match.

@@ -146,8 +146,7 @@
             "herdr_kind": "cursor",
             "quota_screen": {
                 "command": "/usage",
-                "parser": "cursor",
-                "prefer": true
+                "parser": "cursor"
             },
             "account": {
                 "type": "env",

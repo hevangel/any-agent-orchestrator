@@ -1,0 +1,106 @@
+{
+  "spec_version": 1,
+  "id": "aao-png",
+  "label": "AAO PNG",
+  "base": "http://127.0.0.1:8771/craft-ai/v1",
+  "auth": {
+    "kind": "bearer"
+  },
+  "probe": {
+    "method": "GET",
+    "path": "/health"
+  },
+  "models": [
+    {
+      "id": "chatgpt",
+      "label": "ChatGPT Image",
+      "capability": "image.generate",
+      "accepts": {
+        "prompt": 1
+      },
+      "requires": [
+        "prompt"
+      ]
+    },
+    {
+      "id": "flow",
+      "label": "Google Flow Image",
+      "capability": "image.generate",
+      "accepts": {
+        "prompt": 1
+      },
+      "requires": [
+        "prompt"
+      ]
+    },
+    {
+      "id": "gemini",
+      "label": "Gemini Image",
+      "capability": "image.generate",
+      "accepts": {
+        "prompt": 1
+      },
+      "requires": [
+        "prompt"
+      ]
+    },
+    {
+      "id": "grok",
+      "label": "Grok Imagine Image",
+      "capability": "image.generate",
+      "accepts": {
+        "prompt": 1
+      },
+      "requires": [
+        "prompt"
+      ]
+    },
+    {
+      "id": "muse",
+      "label": "Muse Image",
+      "capability": "image.generate",
+      "accepts": {
+        "prompt": 1
+      },
+      "requires": [
+        "prompt"
+      ]
+    }
+  ],
+  "flow": {
+    "kind": "queue",
+    "submit": {
+      "call": {
+        "method": "POST",
+        "path": "/jobs",
+        "body": {
+          "provider": "{model}",
+          "kind": "image",
+          "prompt": "{prompt}"
+        }
+      },
+      "job_id_at": "/id"
+    },
+    "poll": {
+      "call": {
+        "method": "GET",
+        "path": "/jobs/{job_id}"
+      },
+      "status_at": "/state",
+      "states": {
+        "pending": "queued",
+        "succeeded": "succeeded",
+        "failed": "failed"
+      },
+      "result": {
+        "at": "/result/data",
+        "as": "base64",
+        "media_type": "image/png"
+      }
+    }
+  },
+  "limits": {
+    "max_polls": 1800,
+    "max_seconds": 1800
+  }
+}
