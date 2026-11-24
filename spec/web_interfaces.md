@@ -157,7 +157,7 @@ Build, debug, and ship": match the first `innerText` line (Playwright `hasText` 
 
 ## Google Flow (`src/orchestrator/web_flow.py`)
 
-`flow.google.com` (AI studio for video and images) uses the Gemini profile and browser session (`aao web login gemini`). The `aao flow` commands cover projects and media management. The `aao web` CLI and ArtCraft use the same direct composer to generate one image or video in a dedicated Flow project and download the original. The generic `aao web image|video flow` command exposes prompt, timeout, and output directory, not Flow's model/count settings. Generation uses the signed-in account's quota or credits.
+`flow.google.com` uses the Gemini profile and browser session (`aao web login gemini`). The `aao flow` commands manage projects and media. The CLI and ArtCraft use Flow's direct composer and download originals. By default, a generation creates a project and requests one output. Generation uses the signed-in account's quota or credits.
 
 ```sh
 uv run aao flow status                                  # is the Google login still good
@@ -166,38 +166,41 @@ uv run aao flow new [--title "..."]                     # empty project, free
 uv run aao flow new-character <project> --name NAME (--face-prompt TEXT | --face-image FILE) [character options]
 uv run aao flow edit-character <project> <character> [character options]
 uv run aao flow read-character <project> <character>
-uv run aao flow read <project> [--type video|image]     # media, newest first: index, type, name, thumbnail
+uv run aao flow characters <project>
+uv run aao flow read <project> [--type video|image|scene|character|collection]   # newest first: index, type, name, thumbnail
 uv run aao flow download <project> <media> [--to DIR] [--quality original|gif|1080p|4k]
-uv run aao flow options [--project P]                   # live agent settings and every choice; never saves
+uv run aao flow options [--project P]
 uv run aao flow upload <project> <file>...                # reference images/videos into the project library (free)
+uv run aao flow add-to-scene <project> <video> "Scene name"
+uv run aao flow save-frame <project> <video-or-scene> [--clip N] [--at PERCENT]
+uv run aao flow extend <project> <video-or-scene> --prompt "What happens next"
 uv run aao flow delete <project> --yes                  # PERMANENT: clips, ingredients and prompts are gone
 ```
 
-`<project>` is an id, a project URL or an exact title (one old project has the id `..._backfill`, so ids are not always uuids). `<media>` is the 1-based index from `read` (the tiles carry no id in the DOM) or the exact media name. Every command accepts `--json` before the sub-command (`aao flow --json read ...`). `options` reads the active mode and model choices in the direct composer, or both model lists if the project still exposes the older agent settings panel.
+`<project>` is an ID, a project URL or an exact title. `<media>` is the 1-based index from `read` or the exact name in the rendered media grid. Each project command reloads the page to start with a fresh grid and composer. Use `--json` before the subcommand for structured output.
 
-**Credits.** Reading, creating, renaming, uploading, deleting, original-size downloads, and video GIF downloads are free. Generation and upscaled downloads can spend credits. `download` defaults to `--quality original`, which handles direct downloads and selects **Original size** when Flow opens a submenu. Select `1080p` or `4k` explicitly for an upscale.
+**Credits.** Reading, creating projects, uploading, original-size downloads, and video GIF downloads are free. Generation, portrait edits with a prompt, Extend, and upscaling can spend credits. `download` uses the original by default. Use the scene's name or index to download its original. Character tiles have no download menu item. `read-character` returns the face and body image URLs along with the ID, name, info, and voice (see [Flow characters](#flow-characters)). Use the character's exact name, ID, or editor URL to read or edit it.
 
-### Options the agent can choose from
+### Generation settings
 
-Read from the live page; `aao flow options` reads them again, so trust it over this list when they differ.
+`aao flow options` reads both Image and Video from the direct composer, including image quality, video resolution and model notices. JSON results include both under `modes`.
 
-| Setting | Choices |
-| --- | --- |
-| Confirm before generating | `Always` (default: the agent asks before it generates) / `Never` (generates and spends credits at once) |
-| Image aspect ratio | `16:9` (default), `4:3`, `1:1`, `3:4`, `9:16` |
-| Image count per prompt | `x1`, `x2` (default), `x3`, `x4` |
-| Image model | `Nano Banana Pro`, `Nano Banana 2 Lite`, `Nano Banana 2.1` (default) |
-| Video aspect ratio | `16:9` (default), `9:16` |
-| Video count per prompt | `x1` (default), `x2`, `x3`, `x4` |
-| Video model | `Omni 1.2 Flash` (default), `Omni 1.1 Flash` (leaving 5 Dec), `Veo 3.1 - Lite`, `Veo 3.1 - Fast` (leaving 5 Dec), `Veo 3.1 - Quality` (leaving 5 Dec) |
+```sh
+uv run aao web image flow --project P --model "Nano Banana 2.1" --aspect 16:9 --quality High --count 2 --prompt "A storefront at dusk"
+uv run aao web video flow --project P --model "Omni 1.2 Flash" --resolution 720p --duration 8 --character "Sophie Goodman" --prompt "Sophie answers the door"
+uv run aao web video flow --project P --start-frame entrance.png --end-frame office.png --prompt "Walk into the office"
+```
 
-These are the agent's per-project defaults in the panel's **Settings**, applied with **Save**; `options` only opens the panel and closes it without saving. The media grid's filter menu offers: type (Images, Videos, Collections, Scenes, Characters), aspect ratio (Landscape, Portrait, Freeform), created (Generated, Uploaded, Favourites), duration (3s..15s), resolution (720p, 360p) and sort (Newest, Oldest). A media's **More options** menu: Favourite, Reuse prompt, Add to scene, Add to prompt, Download, Copy, Rename, Share, Publish to YouTube, Set project cover, Flag output, Move to bin. Sharing, publishing and the bin are not driven.
+Use `--count` from 1 to 4 and `--aspect` for either media type. `--quality` selects image quality or accepts a video resolution as an alias for `--resolution`. `--duration` requests seconds and fails before generation if Flow cannot provide that duration with the chosen settings. Repeat `--reference` to attach up to three local images, or `--character` to attach saved characters by name with their saved voices. Frames use project image names or indexes and require video generation in an existing project. Ingredients and frames use separate composer modes.
+
+`add-to-scene` accepts an exact scene name or `"New scene"`. `save-frame` saves the chosen playhead position as an image in the project. `--clip` selects a clip in the scene and `--at` is the percentage through that clip. `extend` uses Flow's Scenebuilder Extend mode on the last clip and reports the longer duration when Flow finishes.
 
 ### Page notes
 
 - Home: project cards `a[href^='/project/<id>']` with "Edit project title" and "Delete project" buttons; "New project" creates one and the URL becomes `/project/<id>`. Delete asks "Are you sure ... permanently deleted" with a `Delete project` button.
 - Project page: media in `flow-grid-tile-container > flow-<type>-tile`; the title is an always-present `textbox "Editable text"` (an h1 only while not edited); a populated project shows the agent panel on the right, an empty one shows the box at the bottom. Clicking a tile opens a viewer without changing the URL.
-- Upload: top bar `Add media menu` (+) > `Upload` opens the OS file chooser. playwright-cli reports it as a modal state (every other command fails with "does not handle the modal state" until it is filled) and `playwright-cli upload <file>` fills it, one file per call, so `aao flow upload` runs open / upload / wait-for-the-new-tile once per file. An uploaded image becomes an `image` tile named after the file, listed newest first, and the agent can use it as a reference ("ingredient").
+- Upload opens Flow's file chooser once per file. The driver checks for a newly visible tile with the uploaded file's name and thumbnail, including when the virtualized grid keeps the same number of tiles.
+- Characters: `new-character`, `edit-character` and `read-character` drive the project's character builder; see [Flow characters](#flow-characters). `characters` lists a project's saved characters.
 - A cookie banner ("flow.google.com uses cookies") overlaps the bottom; the driver presses `No thanks`.
 - `run-code` has no `URL` global (parse `page.url()` by hand) and the home page loads slowly: the `flow` target settles 12 s before the login check.
 - Tests: `tests/e2e/test_web_flow.py` is read-only plus one free download; project create, upload and delete were checked by hand on throwaway projects.
@@ -290,6 +293,8 @@ uv run aao web audio grok --prompt "A soft five-second two-note doorbell chime w
 uv run aao web audio muse --reference lake.jpg --prompt "A short instrumental with gently plucked guitar and a soft bell"
 uv run aao web audio flow-music --prompt "An acoustic lullaby with piano and brushed drums" --out downloads
 ```
+
+Flow Music uses a chat brief. `--lyrics`, `--style`, `--length` (target seconds), and `--instrumental` add instructions to that brief. `--song N` requests versions and downloads the Nth finished song shown in the generation thread.
 
 Images support ChatGPT, Flow, Gemini, Grok, and Muse. Video supports Flow, Gemini, Grok, and Muse. Audio supports Flow Music, Grok, and Muse. Each `aao web image|video|audio` command requires `--prompt` and accepts `--out DIR`, `--timeout SECONDS`, and `--json`. Each run writes into a new subdirectory under `downloads/` by default. Use `aao grok image|video` for Grok-specific quality, count, and aspect controls and `aao flow` for Flow project and media management.
 

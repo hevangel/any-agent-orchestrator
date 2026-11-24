@@ -32,29 +32,26 @@ def test_web_flow_read_only(web_target, evidence, tmp_path):
 
         options = steps["options"] = web_flow.session("options", project=projects[0]["id"])
         assert options.get("ok"), options
-        if options.get("mode") == "direct":
-            groups = [{t["label"] for t in group} for group in options["toggles"]]
+        assert set(options["modes"]) == {"image", "video"}
+        for kind, expected in (("image", {"Low", "Medium", "High"}), ("video", {"360p", "720p"})):
+            settings = options["modes"][kind]
+            groups = [{t["label"] for t in group} for group in settings["toggles"]]
             assert {"Image", "Video"} in groups, groups
-            assert any("x1" in group for group in groups), groups
-            assert len(options["dropdowns"]) == 1 and options["dropdowns"][0]["choices"], options["dropdowns"]
-        else:
-            assert {r["label"] for r in options["confirm"]} == {"Always", "Never"}, options["confirm"]
-            assert [len(g) for g in options["toggles"]] == [5, 4, 2, 4], options["toggles"]
-            assert len(options["dropdowns"]) == 2 and all(d["choices"] for d in options["dropdowns"]), options["dropdowns"]
+            assert expected in groups, groups
+            assert settings["dropdowns"][0]["choices"], settings["dropdowns"]
 
-        with_media = None
+        downloadable = None
         for p in projects:
             read = steps["read-" + p["id"][:8]] = web_flow.session("read", project=p["id"])
             assert read.get("ok") and read.get("id") == p["id"], read
-            if read["media"]:
-                with_media = read
+            assert not read["media"] or read["media"][0]["index"] == 1
+            downloadable = next((media for media in read["media"] if media["type"] in ("image", "video")), None)
+            if downloadable:
                 break
-        if not with_media:
-            pytest.skip("no project with media to read or download")
-        first = with_media["media"][0]
-        assert first["type"] in ("video", "image") and first["index"] == 1, first
+        if not downloadable:
+            pytest.skip("no project with an image or video to download")
 
-        saved = steps["download"] = web_flow.download(with_media["id"], 1, to=str(tmp_path), quality="original")
+        saved = steps["download"] = web_flow.download(read["id"], downloadable["index"], to=str(tmp_path), quality="original")
         assert saved.get("ok"), saved
         files = list(tmp_path.iterdir())
         assert files and files[0].stat().st_size > 10_000, saved
