@@ -153,3 +153,161 @@ def test_grok_mcp_tool_schemas_and_dispatch(monkeypatch):
         assert result == {"ok": True, "response": "hello"}
 
     asyncio.run(check_tools())
+
+
+def _payload(script):
+    return json.loads(script.split("const cfg = ")[1].split(";\n", 1)[0])
+
+
+@pytest.fixture
+def grok_page(monkeypatch):
+    calls = []
+
+    def run_script(target, script, timeout):
+        calls.append(_payload(script))
+        return calls[-1].pop("_result", {"ok": True})
+
+    monkeypatch.setattr(web_grok.web, "open_target", lambda target, headed=None: (True, "", ""))
+    monkeypatch.setattr(web_grok.web, "run_script", run_script)
+    monkeypatch.setattr(web_grok.web, "release", lambda target: None)
+    return calls
+
+
+def test_image_mentions_strip_at_and_keep_uploads(grok_page, tmp_path):
+    upload = tmp_path / "a.png"
+    upload.write_bytes(b"png")
+    assert cli.main(["grok", "image", "a fox", "--ref", "@Fox", "--ref", "Lena", "--upload", str(upload),
+                     "--count", "2", "--out", str(tmp_path)]) == 0
+    payload = grok_page[0]
+    assert payload["mentions"] == ["Fox", "Lena"]
+    assert payload["references"] == [upload.as_posix()]
+    assert payload["menus"] == [["Image Count", "2"]]
+
+
+def test_reference_cli_list_new_and_guarded_delete(grok_page, tmp_path, monkeypatch, capsys):
+    image = tmp_path / "hero.png"
+    image.write_bytes(b"png")
+    monkeypatch.setattr(web_grok, "list_references", lambda category=None: {
+        "ok": True, "references": [{"name": "Hero", "sample": False}, {"name": "Fox", "sample": True}]})
+    assert cli.main(["grok", "reference", "list"]) == 0
+    assert capsys.readouterr().out.splitlines() == ["@Hero", "@Fox  (sample)"]
+    assert cli.main(["grok", "reference", "new", "Hero", "--image", str(image), "--category", "Prop"]) == 0
+    assert grok_page[-1]["action"] == "create"
+    assert grok_page[-1]["images"] == [image.as_posix()] and grok_page[-1]["category"] == "Prop"
+    assert cli.main(["grok", "reference", "delete", "@Hero"]) == 1
+    assert len(grok_page) == 1
+    assert cli.main(["grok", "reference", "delete", "@Hero", "--yes"]) == 0
+    assert grok_page[-1] == {"action": "delete", "name": "Hero", "url": web_grok.IMAGINE_URL,
+                             "loginUrl": web_grok.web.LOGIN_URL}
+
+
+def test_draw_sends_sketch_and_validated_strokes(grok_page, tmp_path):
+    sketch = tmp_path / "sketch.png"
+    sketch.write_bytes(b"\x89PNG")
+    strokes = tmp_path / "strokes.json"
+    strokes.write_text(json.dumps([{"points": [[0.1, 0.2], [0.5, 0.5]], "color": "#EF4444", "size": 8}]))
+    assert cli.main(["grok", "draw", "a boat", "--sketch", str(sketch), "--strokes", str(strokes),
+                     "--style", "Painting", "--aspect", "21:9", "--brush", "6", "--out", str(tmp_path)]) == 0
+    payload = grok_page[0]
+    assert payload["url"].endswith("/imagine/draw")
+    assert payload["sketch"].startswith("data:image/png;base64,")
+    assert payload["strokes"] == [{"points": [[0.1, 0.2], [0.5, 0.5]], "color": "#ef4444", "size": 8}]
+    assert (payload["style"], payload["aspect"], payload["brush"]) == ("Painting", "21:9", 6)
+
+
+@pytest.mark.parametrize("options", [
+    {"strokes": [{"points": [[1.5, 0]]}]}, {"strokes": [{"points": [[0, 0]], "color": "red"}]},
+    {"style": "Anime"}, {"aspect_ratio": "7:3"}, {"brush": 0},
+])
+def test_draw_validates_before_opening_browser(monkeypatch, options):
+    monkeypatch.setattr(web_grok.web, "open_target", lambda *args, **kwargs: pytest.fail("browser opened"))
+    with pytest.raises(ValueError):
+        web_grok.draw("prompt", **options)
+
+
+def test_canvas_accepts_ids_and_urls_only(grok_page, tmp_path):
+    agent = "3542c068-00ff-4461-9e5d-14aa522b4fed"
+    assert web_grok.canvas_url(agent) == f"https://grok.com/imagine/agent/{agent}"
+    url = f"https://grok.com/imagine/agent/{agent}?conversation={agent}"
+    assert web_grok.canvas_url(url) == url
+    for bad in ("https://evil.example/imagine/agent/" + agent, "not-a-canvas"):
+        with pytest.raises(ValueError):
+            web_grok.canvas_url(bad)
+    with pytest.raises(ValueError):
+        web_grok.canvas(files=[__file__])
+    assert cli.main(["grok", "canvas", "add a teapot", "--canvas", agent, "--out", str(tmp_path)]) == 0
+    assert grok_page[0]["canvas"] == f"https://grok.com/imagine/agent/{agent}"
+    assert grok_page[0]["kind"] == "media" and grok_page[0]["prompt"] == "add a teapot"
+    assert cli.main(["grok", "canvas", "--out", str(tmp_path)]) == 0
+    assert grok_page[1]["canvas"] is None and grok_page[1]["prompt"] is None
+
+
+def test_video_frames_loop_voice_and_picks_reach_the_page(grok_page, tmp_path):
+    first, middle, last = (tmp_path / f"{n}.png" for n in ("first", "middle", "last"))
+    for frame in (first, middle, last):
+        frame.write_bytes(b"png")
+    assert cli.main(["grok", "video", "pan", "--image", str(first), "--middle-frame", str(middle),
+                     "--last-frame", str(last), "--voice", "Eve", "--no-audio", "--res", "1080p",
+                     "--duration", "15s", "--pick", "upload:sketch.png", "--pick", "generation:2",
+                     "--dry-run", "--out", str(tmp_path)]) == 0
+    payload = grok_page[0]
+    assert (payload["image"], payload["middleFrame"], payload["lastFrame"]) == (
+        first.as_posix(), middle.as_posix(), last.as_posix())
+    assert payload["voice"] == "Eve" and payload["audio"] is False and payload["dryRun"] is True
+    assert payload["radios"] == ["1080p", "15s"]
+    assert payload["picks"] == [{"source": "upload", "name": "sketch.png"}, {"source": "generation", "index": 2}]
+    assert cli.main(["grok", "video", "sway", "--image", str(first), "--loop", "--audio", "--out", str(tmp_path)]) == 0
+    assert grok_page[1]["loop"] is True and grok_page[1]["audio"] is True
+
+
+@pytest.mark.parametrize("options", [
+    {"last_frame": "x.png"}, {"loop": True}, {"picks": ["generation:newest"]}, {"picks": ["library:1"]},
+    {"voice": " "},
+])
+def test_video_options_validate_before_opening_browser(monkeypatch, options):
+    monkeypatch.setattr(web_grok.web, "open_target", lambda *args, **kwargs: pytest.fail("browser opened"))
+    with pytest.raises(ValueError):
+        web_grok.generate_video("prompt", **options)
+
+
+def test_reference_edit_and_library_cli(grok_page, tmp_path):
+    image = tmp_path / "new.png"
+    image.write_bytes(b"png")
+    assert cli.main(["grok", "reference", "edit", "@Hero", "--title", "Heroine", "--description", "",
+                     "--image", str(image), "--replace-media"]) == 0
+    edit = grok_page[0]
+    assert (edit["action"], edit["name"], edit["title"], edit["description"]) == ("edit", "Hero", "Heroine", "")
+    assert edit["images"] == [image.as_posix()] and edit["replaceMedia"] is True and edit["category"] is None
+    with pytest.raises(ValueError):
+        web_grok.edit_reference("Hero")
+    with pytest.raises(ValueError):
+        web_grok.edit_reference("Hero", replace_media=True)
+    assert cli.main(["grok", "library", "voices"]) == 0
+    assert grok_page[1]["source"] == "voices"
+
+
+def test_template_run_pairs_and_slugs(grok_page, tmp_path):
+    photo = tmp_path / "photo.png"
+    photo.write_bytes(b"png")
+    assert cli.main(["grok", "template", "run", "BG Removal & Change", "--image", str(photo),
+                     "--image", f"Your photos={photo}", "--choose", "Background=Custom",
+                     "--text", "New background=a forest = misty", "--dry-run", "--out", str(tmp_path)]) == 0
+    payload = grok_page[0]
+    assert payload["query"] == "BG Removal & Change" and payload["slug"] == "imagine-bg-removal-change"
+    assert payload["images"] == [[None, photo.as_posix()], ["Your photos", photo.as_posix()]]
+    assert payload["choices"] == [["Background", "Custom"]]
+    assert payload["texts"] == [["New background", "a forest = misty"]]
+    assert web_grok._template_slug("imagine-photo-edit") == "imagine-photo-edit"
+    with pytest.raises(ValueError):
+        web_grok.run_template("photo-edit", choices=["Cozy Warm"])
+
+
+def test_canvas_board_tools_and_list(grok_page, tmp_path):
+    board = tmp_path / "board.png"
+    board.write_bytes(b"png")
+    assert cli.main(["grok", "canvas", "--note", "hello", "--board-image", str(board), "--out", str(tmp_path)]) == 0
+    assert grok_page[0]["notes"] == ["hello"] and grok_page[0]["boardImages"] == [board.as_posix()]
+    assert cli.main(["grok", "canvas", "--list"]) == 0
+    assert grok_page[1]["action"] == "list"
+    with pytest.raises(ValueError):
+        web_grok.canvas(notes=[" "])

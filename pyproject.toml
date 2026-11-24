@@ -5,7 +5,7 @@ description = "Orchestrate CLI, web and desktop AI agents across machines; dashb
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
-dependencies = ["psutil>=6.0"]
+dependencies = ["psutil>=6.0", "tzdata>=2024.1; sys_platform == 'win32'"]
 
 [project.scripts]
 aao = "orchestrator.cli:main"

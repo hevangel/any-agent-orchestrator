@@ -28,9 +28,18 @@
 [submodule "external/tokenmeter"]
 	path = external/tokenmeter
 	url = https://github.com/serkankorkut/tokenmeter.git
-[submodule "external/grok-web-sdk"]
-	path = external/grok-web-sdk
-	url = https://github.com/ashwaniarya/grok-web-sdk.git
+[submodule "external/phasyn-studio"]
+	path = external/phasyn-studio
+	url = https://github.com/hevangel/phasyn-studio.git
+[submodule "external/artcraft"]
+	path = external/artcraft
+	url = https://github.com/storytold/artcraft.git
+[submodule "external/artcraft-services"]
+	path = external/artcraft-services
+	url = https://github.com/storytold/artcraft-services.git
 [submodule "external/gemini-notebook-mcp-cli"]
 	path = external/gemini-notebook-mcp-cli
 	url = https://github.com/jacob-bd/gemini-notebook-mcp-cli.git
+[submodule "external/grok-web-sdk"]
+	path = external/grok-web-sdk
+	url = https://github.com/ashwaniarya/grok-web-sdk.git

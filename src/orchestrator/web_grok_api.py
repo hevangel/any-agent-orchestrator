@@ -24,6 +24,7 @@ class ImageRequest(BaseModel):
     quality: grok.Quality | None = None
     aspect_ratio: grok.Aspect | None = None
     count: grok.Count | None = None
+    mentions: list[str] = []
     download_dir: str = grok.DEFAULT_OUT
     timeout_s: float = Field(default=300, gt=0, allow_inf_nan=False)
 
@@ -34,6 +35,7 @@ class VideoRequest(BaseModel):
     resolution: grok.Resolution = "480p"
     duration: grok.Duration = "6s"
     aspect_ratio: grok.Aspect | None = None
+    mentions: list[str] = []
     download_dir: str = grok.DEFAULT_OUT
     timeout_s: float = Field(default=600, gt=0, allow_inf_nan=False)
 
@@ -106,18 +108,20 @@ def create_mcp():
     @server.tool()
     async def grok_generate_image(prompt: str, quality: grok.Quality | None = None,
                                   aspect_ratio: grok.Aspect | None = None, count: grok.Count | None = None,
+                                  mentions: list[str] | None = None,
                                   download_dir: str = grok.DEFAULT_OUT, timeout_s: float = 300) -> dict[str, Any]:
-        """Generate images using the signed-in Grok account and return the saved file paths."""
+        """Generate images with the signed-in Grok account; mentions are saved @references. Returns file paths."""
         return await to_thread(grok.generate_image, prompt, quality=quality, aspect_ratio=aspect_ratio,
-                               count=count, download_dir=download_dir, timeout_s=timeout_s)
+                               count=count, mentions=mentions or (), download_dir=download_dir, timeout_s=timeout_s)
 
     @server.tool()
     async def grok_generate_video(prompt: str, resolution: grok.Resolution = "480p", duration: grok.Duration = "6s",
-                                  aspect_ratio: grok.Aspect | None = None, download_dir: str = grok.DEFAULT_OUT,
-                                  timeout_s: float = 600) -> dict[str, Any]:
-        """Generate a video using the signed-in Grok account and return the saved file path."""
+                                  aspect_ratio: grok.Aspect | None = None, mentions: list[str] | None = None,
+                                  download_dir: str = grok.DEFAULT_OUT, timeout_s: float = 600) -> dict[str, Any]:
+        """Generate a video with the signed-in Grok account; mentions are saved @references. Returns file paths."""
         return await to_thread(grok.generate_video, prompt, resolution=resolution, duration=duration,
-                               aspect_ratio=aspect_ratio, download_dir=download_dir, timeout_s=timeout_s)
+                               aspect_ratio=aspect_ratio, mentions=mentions or (), download_dir=download_dir,
+                               timeout_s=timeout_s)
 
     return server
 

@@ -223,6 +223,7 @@ __marimo__/
 temp/
 .playwright-cli/
 state/
+workspace/
 
 # Test results and evidence (transcripts, screenshots)
 tests/result/

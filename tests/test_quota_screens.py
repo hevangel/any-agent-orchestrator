@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -6,10 +6,17 @@ from orchestrator import drivers, quota_screens, quotas
 from orchestrator.config import Account, Settings
 
 NOW = datetime(2026, 11, 11, 20, tzinfo=timezone.utc)
+PST = timezone(timedelta(hours=-8))
+
+
+@pytest.fixture(autouse=True)
+def _machine_zone(monkeypatch):
+    # Unzoned clock labels are read in the collecting machine's zone.
+    monkeypatch.setattr(quota_screens, "local_tz", lambda: PST)
 CLAUDE = """
 Current session
 ████░░ 23% used
-Resets 4pm (America/Vancouver)
+Resets 4pm (America/Los_Angeles)
 Current week (all models)
 ██░░░░ 12.5% used
 Resets 2026-11-18T20:00:00Z
@@ -27,8 +34,8 @@ Weekly limit: [██░░░░] 90.5% remaining (resets in 2d 3h)
 def test_claude_windows_scopes_and_reset_times():
     session, weekly, sonnet = quota_screens.parse_screen("claude", CLAUDE, NOW)
     assert (session["name"], session["used_pct"], session["remaining_pct"]) == ("5-hour", 23, 77)
-    assert session["seconds"] == 18000 and session["resets_at"] is None
-    assert session["reset_text"] == "Resets 4pm (America/Vancouver)"
+    assert session["seconds"] == 18000 and session["resets_at"] == "2026-11-12T00:00:00+00:00"
+    assert session["reset_text"] == "Resets 4pm (America/Los_Angeles)" and "reset_estimated" not in session
     assert weekly["scope"] is None and weekly["used_pct"] == 12.5
     assert weekly["resets_at"] == "2026-11-18T20:00:00+00:00"
     assert sonnet["scope"] == "Sonnet only" and sonnet["used_pct"] == 0
@@ -39,6 +46,7 @@ def test_codex_remaining_is_not_used_and_context_is_ignored():
     windows = quota_screens.parse_screen("codex", "\x1b[32m" + CODEX + "\x1b[0m", NOW)
     assert [(w["name"], w["used_pct"]) for w in windows] == [("5-hour", 20), ("weekly", 9.5)]
     assert windows[0]["reset_text"] == "resets 16:00"
+    assert windows[0]["resets_at"] == "2026-11-12T00:00:00+00:00"
     assert windows[1]["resets_at"] == "2026-11-13T23:00:00+00:00"
 
 

@@ -17,8 +17,8 @@ The implemented targets and their command surfaces are listed below. Web UIs cha
 
 | Target | URL | Implemented support |
 | --- | --- | --- |
-| Grok | `https://grok.com/` | Chat turns and projects; Imagine image/video generation; Grok-only CDP attach. Bot support is not implemented. |
-| Muse | `https://muse.ai/` | Browser login/status and image and video generation. General chat turn extraction is not implemented. |
+| Grok | `https://grok.com/` | Chat turns and projects; Imagine image/video generation, saved @references, Draw, and Agent canvases; Grok-only CDP attach. Bot support is not implemented. |
+| Muse | `https://muse.ai/` | Browser login/status, image and video generation, and the account's usage quota (`aao web quota muse`: weekly plan limit and top-up tokens from Settings → Usage, also shown on the dashboard's Quotas tab). General chat turn extraction is not implemented. |
 | Gemini | `https://gemini.google.com/app` | Chat and Task turns, local file and GitHub-repository attachments, chat list/notebooks, image/video generation. |
 | Claude web | `https://claude.ai/new` | Chat turns and chat list/sections through Playwright. |
 | Claude Code on the web | `https://claude.ai/code` | Sessions and beta projects through `aao code`; shares the Claude browser profile. |
@@ -163,11 +163,11 @@ Build, debug, and ship": match the first `innerText` line (Playwright `hasText` 
 uv run aao flow status                                  # is the Google login still good
 uv run aao flow projects                                # id, title (default title is the creation date)
 uv run aao flow new [--title "..."]                     # empty project, free
-uv run aao flow new-character <project> --name NAME (--prompt TEXT | --image FILE) [--info TEXT] [--voice NAME]
-uv run aao flow characters <project>
+uv run aao flow new-character <project> --name NAME (--face-prompt TEXT | --face-image FILE) [character options]
+uv run aao flow edit-character <project> <character> [character options]
 uv run aao flow read-character <project> <character>
-uv run aao flow edit-character <project> <character> [--name NAME] [--info TEXT] [--voice NAME] [--prompt TEXT]
-uv run aao flow read <project> [--type video|image|scene|character|collection]
+uv run aao flow characters <project>
+uv run aao flow read <project> [--type video|image|scene|character|collection]   # newest first: index, type, name, thumbnail
 uv run aao flow download <project> <media> [--to DIR] [--quality original|gif|1080p|4k]
 uv run aao flow options [--project P]
 uv run aao flow upload <project> <file>...                # reference images/videos into the project library (free)
@@ -179,7 +179,7 @@ uv run aao flow delete <project> --yes                  # PERMANENT: clips, ingr
 
 `<project>` is an ID, a project URL or an exact title. `<media>` is the 1-based index from `read` or the exact name in the rendered media grid. Each project command reloads the page to start with a fresh grid and composer. Use `--json` before the subcommand for structured output.
 
-**Credits.** Reading, creating projects, uploading, original-size downloads, and video GIF downloads are free. Generation, portrait edits with a prompt, Extend, and upscaling can spend credits. `download` uses the original by default. Use the scene's name or index to download its original. Character tiles have no download menu item. `read-character` returns the portrait URL along with the ID, name, info, and selected voice. Use the character's exact name, ID, or editor URL to read or edit it.
+**Credits.** Reading, creating projects, uploading, original-size downloads, and video GIF downloads are free. Generation, portrait edits with a prompt, Extend, and upscaling can spend credits. `download` uses the original by default. Use the scene's name or index to download its original. Character tiles have no download menu item. `read-character` returns the face and body image URLs along with the ID, name, info, and voice (see [Flow characters](#flow-characters)). Use the character's exact name, ID, or editor URL to read or edit it.
 
 ### Generation settings
 
@@ -200,10 +200,24 @@ Use `--count` from 1 to 4 and `--aspect` for either media type. `--quality` sele
 - Home: project cards `a[href^='/project/<id>']` with "Edit project title" and "Delete project" buttons; "New project" creates one and the URL becomes `/project/<id>`. Delete asks "Are you sure ... permanently deleted" with a `Delete project` button.
 - Project page: media in `flow-grid-tile-container > flow-<type>-tile`; the title is an always-present `textbox "Editable text"` (an h1 only while not edited); a populated project shows the agent panel on the right, an empty one shows the box at the bottom. Clicking a tile opens a viewer without changing the URL.
 - Upload opens Flow's file chooser once per file. The driver checks for a newly visible tile with the uploaded file's name and thumbnail, including when the virtualized grid keeps the same number of tiles.
-- Characters: `new-character` opens the project's character builder, uploads one local portrait with `--image` or generates one with `--prompt`, then names and saves the reusable character. `--info` sets the character's background or personality, and `--voice` selects a built-in voice by name. `aao flow --json new-character ...` returns the character ID, name and editor URL. Portrait generation may use Flow credits. If Flow opens the editor and a later step fails, the command prints the editor URL so you can finish the same character there. The Playwright workflow follows the [flow-mcp UI reference](https://github.com/GTAI-1/flow-mcp/blob/main/CLAUDE.md).
+- Characters: `new-character`, `edit-character` and `read-character` drive the project's character builder; see [Flow characters](#flow-characters). `characters` lists a project's saved characters.
 - A cookie banner ("flow.google.com uses cookies") overlaps the bottom; the driver presses `No thanks`.
 - `run-code` has no `URL` global (parse `page.url()` by hand) and the home page loads slowly: the `flow` target settles 12 s before the login check.
 - Tests: `tests/e2e/test_web_flow.py` is read-only plus one free download; project create, upload and delete were checked by hand on throwaway projects.
+
+### Flow characters
+
+Use `--face-prompt` or `--face-image` for the portrait, and `--body-prompt` or `--body-image` for a separate full-body reference. The original `--prompt` and `--image` spellings still work for the face. `--info` sets the character's background or personality.
+
+`--voice` selects a Flow voice by name. To create a custom voice, pass a base preset with `--voice` and describe its accent, tone or delivery with `--voice-description`. Use `--voice-name` to name the result, or let it default to the character name plus “Voice”. Generating a face, body or custom voice may use Flow credits. [Google Flow voice documentation](https://support.google.com/flow/answer/16353334#custom_voices)
+
+```powershell
+uv run aao flow new-character "My Project" --name Mara --face-image mara-face.png --body-prompt "Full-body view in an olive flight suit" --info "A calm test pilot" --voice Kore --voice-description "Low, measured delivery with a slight Vancouver accent"
+uv run aao flow edit-character "My Project" Mara --body-image mara-flight-suit.png --info "Former rescue pilot"
+uv run aao flow --json read-character "My Project" Mara
+```
+
+Edit and read accept the character's exact name, ID or editor URL. Edits apply the supplied fields. The read result includes the ID, name, editor URL, character info, voice and performance where exposed by the editor, and available face and body image URLs. If a multi-step change stops in the editor, the CLI prints the URL so you can reopen that character. Browser control follows the [flow-mcp UI reference](https://github.com/GTAI-1/flow-mcp/blob/main/CLAUDE.md) and the [gflow-cli body slot notes](https://github.com/ffroliva/gflow-cli/blob/develop/docs/CHARACTER.md).
 
 ## Grok chat and Imagine (`src/orchestrator/web_grok.py`)
 
@@ -214,17 +228,46 @@ uv run aao grok chat "Summarize our discussion" --chat "Project notes"
 uv run aao grok image "A paper plane over mountains" --quality Quality --aspect 16:9 --count 4 -o downloads
 uv run aao grok video "Animate the paper plane" --image reference.png --res 720p --duration 10s --aspect 16:9 -o downloads
 uv run aao grok --json image "A red teapot" --aspect 1:1
+uv run aao grok image "reading in a library" --ref Fox --ref Lena     # saved @references
+uv run aao grok image "Restyle this" --upload photo.png              # one-off uploaded image
+uv run aao grok reference list [--category Character|Prop|Location]
+uv run aao grok reference new Hero --image front.png --image side.png [--voice hero.mp3] [--description ..] [--category Character]
+uv run aao grok reference edit Hero [--title Heroine] [--description ..] [--image extra.png] [--voice v.mp3] [--replace-media]
+uv run aao grok reference delete Hero --yes
+uv run aao grok video "a slow pan" --image first.png [--middle-frame mid.png] [--last-frame last.png] [--voice Eve] [--audio|--no-audio] [--res 1080p --duration 15s]
+uv run aao grok video "gentle sway" --image still.png --loop           # starts and ends on the image
+uv run aao grok image "combine these" --pick generation:1 --pick upload:sketch.png --dry-run
+uv run aao grok library generations|uploads|voices                    # what --pick and --voice can name
+uv run aao grok template list
+uv run aao grok template show photo-edit                               # sections, options, image slots
+uv run aao grok template run photo-edit --image photo.jpg --choose "Edit=Cozy Warm" [--text "Details=.."] [--dry-run]
+uv run aao grok draw "a sailboat on a lake" --sketch sketch.png [--strokes strokes.json] [--style Manga] [--aspect 2:3] [--brush 6]
+uv run aao grok canvas                                               # New canvas: prints its URL
+uv run aao grok canvas "Make a 4-panel storyboard" [--canvas <url|id>] [--file brief.pdf] [--note "text"] [--board-image ref.png]
+uv run aao grok canvas --list
 ```
 
-Imagine generation uses the signed-in account's quota. Images support `Speed` or `Quality` and counts `Auto`, `4`, `8`, and `12`. Videos support `480p` or `720p` and `6s` or `10s`. Both support `2:3`, `3:2`, `1:1`, `9:16`, and `16:9`. Video opens a visible browser when starting a session. It reuses an open session, so close a headless Grok session before generating video in a visible one. `--timeout` controls the time to wait for media after submission. Files default to `downloads/` and have unique names per run. JSON includes saved paths, available HTTPS media URLs, and the conversation URL. A partial download reports its saved files and returns a failure exit code.
+Imagine generation uses the signed-in account's quota. Images support `Speed` or `Quality` (the page labels it `Quality 2.0`; the driver accepts a trailing version) and counts `Auto`, `2`, `4`, `8`, and `12`. Videos support `480p`, `720p` or `1080p` and `6s`, `10s` or `15s`. `--dry-run` on `image`, `video` and `template run` sets everything up, prints what the composer or form holds, and stops before Submit, so nothing is spent. Both support `2:3`, `3:2`, `1:1`, `9:16`, and `16:9`. Video opens a visible browser when starting a session. It reuses an open session, so close a headless Grok session before generating video in a visible one. `--timeout` controls the time to wait for media after submission. Files default to `downloads/` and have unique names per run. JSON includes saved paths, available HTTPS media URLs, and the conversation URL. A partial download reports its saved files and returns a failure exit code.
 
-The driver selects Imagine controls, records the existing media sources, submits once, and waits for new sources to settle. It saves inline and remote media using Playwright. The optional reference image is set through the Imagine file input before submitting a video.
+The driver selects Imagine controls, clears the composer (it keeps drafts, including `@reference` chips, across reloads), records the existing media sources, submits once, and waits for new sources to settle. It saves inline and remote media using Playwright. The optional reference image is set through the Imagine file input before submitting a video.
+
+**Video frames, Loop and audio.** An image attached in Video mode is the first frame; the composer then offers *Add intermediate frame* and *Add last frame*. Those buttons, like Loop's *Upload photo*, click a hidden file input that opens the OS file chooser, which blocks playwright-cli, so the driver replaces `input.click()` in the page to catch the input and sets its files directly. The *Loop* tile asks for the image the video starts and ends on and puts a `Loop` chip in the prompt (the prompt is appended after it). *Video audio* is an on/off switch (`--audio`/`--no-audio`; omitted leaves it as it is).
+
+**The + toolbox.** The composer's + button (`Upload`) opens a toolbox with tabs Generations, Uploads, Audio and References, plus Draw and Upload media. A tab click during its opening animation is dropped, so the driver retries until the tab is selected.
+
+- **Generations and Uploads** list your library newest first. Generations are all labelled `image.jpg`, so `--pick generation:N` takes them by position; uploads keep their file names (`--pick upload:NAME`, or `upload:N`). Selecting one attaches it like an uploaded image (the first frame in Video mode). These rows never count as stable for a pointer click, so the driver fires a DOM click.
+- **Audio** lists 56 preset voices (Eve, Rex, Luna, …) with a sample each; `--voice NAME` attaches one to a video. `aao grok library voices` lists them.
+
+- **References** are saved `@Name` characters, props and locations (Grok ships samples such as `@Fox`). `reference new` fills the New reference dialog: title, description, category, images (jpeg, png, gif, webp, bmp, tiff; at least one) and voice clips (mp3, wav, ogg, flac, aac, m4a, webm, opus). Grok derives the `@Name` from the title. Each voice clip opens a Trim step; the driver keeps the whole clip (Done). Grok screens voices and answers a clip it will not use (tested: a synthetic tone and Windows text-to-speech) with `audio-not-allowed` without showing anything on the page; the driver reads that answer and reports it. `reference edit` opens the same form (heading *Edit reference*, button *Update*): it renames, changes the description, adds images or clips, or with `--replace-media` removes the current ones first (each item's tile is itself a role=button named *Remove media*; the real control is the `<button>` inside it). Grok disables the category once a reference exists. Deleting asks Grok's confirmation dialog and needs `--yes` on the CLI. `--ref NAME` on `image` and `video` clicks *Use @NAME*, which inserts a mention chip, then appends the prompt. Grok files such a generation as an edit under the reference's own post, ignores the count and aspect ratio, and does not render the result on the page it opens; the driver finds the new post in the sidebar's recent media and downloads it from that post.
+- **Draw** (`https://grok.com/imagine/draw`) is a brush canvas with Brush/Eraser, a size slider, seven preset colors plus a custom hex, Style (`Manga`, `Illustration`, `Painting`, `Realistic`), and Aspect ratio (`2:3`, `3:2`, `4:3`, `1:1`, `9:16`, `16:9`, `21:9`, `5:2`). The page redraws from its own stroke list, so a bitmap painted onto the canvas is discarded. `--sketch` therefore replays an image as horizontal brush strokes, one row per brush width; colors snap to the palette and light pixels are skipped. Keep sketches simple (flat colors, white background); a sketch over 6000 strokes is refused. `--strokes` takes `[{"points": [[x, y], ...], "color": "#rrggbb", "size": n}]` with `x` and `y` from 0 to 1; a color outside the palette is set through the hidden native color input without opening the OS picker. Generate opens `/imagine/post/<id>`, and the image under `/generated/<id>/` is saved.
+- **New canvas** is the Agent mode (`/imagine/agent/<id>?conversation=<id>`): a chat with the Imagine agent beside an infinite board (Files and Canvas views; Select, Hand, Generate Image, Generate Video, Text and Upload image tools). Grok lists each canvas under Projects, named from its first message. `aao grok canvas` without a prompt creates one and prints its URL. With a prompt it attaches `--file`s (set on the input behind Attach files → Upload a file, because a native file chooser blocks playwright-cli), sends the message, waits for the reply's action toolbar, and saves new `/generated/` media from the turn. The reply goes to stdout and a `Thought for …` header to JSON `thinking`. `--canvas` takes the printed URL or the agent ID. `--note` places a text note with the board's Text tool and `--board-image` puts local images on the board with its Upload image tool, before any message. A canvas is a Grok project (`/project/<id>` is the same ID) whose conversation has kind `CONVERSATION_KIND_IMAGINE`; `canvas --list` reads the site's own `/rest/workspaces` and `/rest/app-chat/conversations?workspaceId=` endpoints and prints each canvas URL.
+- **Templates** (`/imagine/template/<slug>`, 16 of them: Photo Collage, Icon Maker, Emoji Creator, Mascot Maker, Photo Edit, BG Removal & Change, Profile Picture, Product Color Change, UGC Photos, Professional Headshot, Reimagine, Smart Resize, E-Commerce Photos, Hero Product Reveal, Character Sprite, Editorial Product Poster) are forms of labelled sections: image slots (*Add reference*), option groups and text boxes. `template show` prints them; the text boxes have no labels of their own, so each control takes the first text in its nearest container that is not a control's own text. `template run` takes the slug, with or without `imagine-`, or the display name; `--image [SECTION=]FILE` (a bare file goes to the first image section), `--choose SECTION=OPTION` and `--text SECTION=TEXT` match section labels case-insensitively by prefix. Add reference opens an inline library picker that stays open after an upload, so its *Upload media* gets a DOM click; React re-renders the form after each step, so the driver re-reads the sections each time. Escape leaves the template, so the driver never presses it there. Results are collected like `@reference` generations: new `/generated/` media on the page or in the sidebar's recent media (tested with Photo Edit → Cozy Warm).
 
 ### Python, HTTP, and MCP
 
-Import `chat`, `generate_image`, and `generate_video` from `orchestrator.web_grok` for Python. Install the optional server dependencies with `uv sync --extra grok-api`.
+Import `chat`, `generate_image`, `generate_video`, `list_library`, `list_references`, `create_reference`, `edit_reference`, `delete_reference`, `list_templates`, `template_info`, `run_template`, `draw`, `canvas`, and `list_canvases` from `orchestrator.web_grok` for Python. Install the optional server dependencies with `uv sync --extra grok-api`.
 
-- `uv run --extra grok-api aao grok serve --port 8000` binds to `127.0.0.1`. `GET /health` checks the service. POST JSON containing `prompt` and any options to `/chat/messages`, `/imagine/images`, or `/imagine/videos`. Imagine accepts `aspect_ratio`, `download_dir`, and `timeout_s` plus its image or video controls.
+- `uv run --extra grok-api aao grok serve --port 8000` binds to `127.0.0.1`. `GET /health` checks the service. POST JSON containing `prompt` and any options to `/chat/messages`, `/imagine/images`, or `/imagine/videos`. Imagine accepts `aspect_ratio`, `mentions` (saved reference names), `download_dir`, and `timeout_s` plus its image or video controls. References, Draw and canvas are CLI and Python only.
 - `uv run --extra grok-api aao grok mcp` starts the stdio MCP server with `grok_chat`, `grok_generate_image`, and `grok_generate_video`. For an MCP client outside the repository, use `uv --directory <repo> run --extra grok-api aao grok mcp`.
 
 Requests within one server share the browser and run serially. Use one CLI command or server at a time with the same browser session.
@@ -247,7 +290,7 @@ uv run aao web video gemini --reference plane.png --prompt "A paper plane glidin
 uv run aao web video muse --reference plane.png --prompt "A paper plane gliding over a lake"
 uv run aao web video grok --reference plane.png --prompt "A paper plane gliding over a lake" --json
 uv run aao web audio grok --prompt "A soft five-second two-note doorbell chime with a gentle echo" --json
-uv run aao web audio muse --prompt "A short instrumental with gently plucked guitar and a soft bell"
+uv run aao web audio muse --reference lake.jpg --prompt "A short instrumental with gently plucked guitar and a soft bell"
 uv run aao web audio flow-music --prompt "An acoustic lullaby with piano and brushed drums" --out downloads
 ```
 
@@ -267,13 +310,13 @@ Apply [the ArtCraft patch](../integrations/artcraft/aao-generation.patch) to a w
 
 ArtCraft imports completed files into the signed-in account's **My Library** in the background. Imported files use the normal **Download** action and honor **Settings → Downloads → Auto Download**. The result controls let you retry a failed import or save the original AAO file locally while the library import is unavailable.
 
-ArtCraft offers Codex CLI, Antigravity CLI, Cursor Agent CLI, ChatGPT Web, Gemini, Google Flow, Muse, and Grok Imagine under **Create Image** and **Image Editor**. CLI providers require their executable on `PATH` and use their configured YOLO permission flags. Image jobs can include up to four PNG, JPEG, or WebP references (8 MiB each) and an optional aspect ratio. The Image Editor sends its composited canvas as a reference. Gemini, Flow, and Grok use their native aspect controls where available. AAO adds an aspect instruction to the prompt for Muse, ChatGPT, CLI providers, and Grok ratios unavailable in its menu.
+ArtCraft offers Codex CLI, Antigravity CLI, Cursor Agent CLI, ChatGPT Web, Gemini, Google Flow, Muse, and Grok Imagine under **Create Image** and **Image Editor**. CLI providers require their executable on `PATH` and use their configured YOLO permission flags. Under **Create Image**, use **Upload** or **Pick from library** on the reference card to add up to four PNG, JPEG, or WebP images (8 MiB each). Image jobs also accept an optional aspect ratio. The Image Editor sends its composited canvas as a reference. Gemini, Flow, and Grok use their native aspect controls where available. AAO adds an aspect instruction to the prompt for Muse, ChatGPT, CLI providers, and Grok ratios unavailable in its menu.
 
 Under **Create Video**, use **Upload** or **Pick from library** on the reference card to add PNG, JPEG, or WebP images (8 MiB each). Grok Imagine takes one first frame, Gemini takes one reference image, Muse accepts up to four reference images, and Flow accepts up to three ingredients in a dedicated generation project. Provider quotas and limits apply.
 
 Under **Create Audio**, choose **Google Flow Music (via AAO)** from the same model menu as Suno. The browser driver starts a new Flow Music session, submits the song description, and downloads the first completed song as an MP3. ArtCraft imports it into **My Library** and shows it in the audio feed. Flow Music uses its own Chrome profile and the signed-in account's generation quota.
 
-**Grok Audio (via AAO)** asks the signed-in Grok chat for a standalone WAV attachment. **Muse Soundtrack (via AAO)** generates a short video with sound through the signed-in Muse account and uses FFmpeg on `PATH` to export the audio as MP3. Both use the same ArtCraft download and library import flow.
+**Grok Audio (via AAO)** asks the signed-in Grok chat for a standalone WAV attachment. **Muse Soundtrack (via AAO)** generates a short video with sound through the signed-in Muse account and uses FFmpeg on `PATH` to export the audio as MP3. Muse Soundtrack accepts up to four optional image references as inspiration for the soundtrack and visuals. Use **Upload** or **Pick from library** on its reference card, or repeat `--reference IMAGE` in the CLI. Each image must be PNG, JPEG, or WebP and at most 8 MiB. Flow Music and Grok Audio use text prompts. Describe tempo, instruments, vocals, or duration in the prompt. All three use the ArtCraft download and library import flow.
 
 ### Upstream declarative adapter compatibility
 
@@ -295,6 +338,14 @@ The bridge shares AAO's existing media queue and drivers. Its `POST /jobs` accep
 Version 1 accepts one prompt and extracts one result. The bridge returns the first usable image or video in the provider's response. FFmpeg on `PATH` converts JPEG and WebP to PNG and uses `libx264` or `libopenh264` to convert WebM to MP4, preserving an audio track when present. Reference attachments and dedicated aspect ratio settings are available through the patched Studio routes. The declarative host handles previews, downloads, and library imports. The specs omit cancellation because AAO does not stop in-progress browser work.
 
 The upstream Rust adapter at revision `a822ad5b` verified all four specs against the AAO HTTP bridge. Audio fixtures matched byte for byte. The visual fixtures exercised JPEG to PNG and WebM to MP4, and `ffprobe` confirmed H.264 video and AAC audio. These tests used fixture files and did not submit live browser jobs.
+
+### World Labs Atlas in ArtCraft Studio
+
+Apply [the native Atlas patch](../integrations/artcraft/worldlabs-atlas.patch) to a writable ArtCraft checkout at `a6d52df45e` and rebuild the desktop app. The patch can be used alongside the AAO media patch. Atlas runs directly in Studio through Tauri and the [Atlas Developer API](https://docs.atlas.worldlabs.ai/quickstart). Create a project key in [Atlas Developers](https://atlas.worldlabs.ai/developers) with `assets.create`, `assets.read`, `tasks.create`, and `operations.read`. Run `worldlabs auth login` in your own terminal and enter the key at its hidden prompt. Studio reads the official CLI credential for the public Atlas API. An inherited `WLT_API_KEY` takes precedence. A Marble or Atlas browser login is separate from the project API key.
+
+Open **Image to 3D World**, then select **World Labs Atlas**. Choose 2–32 overlapping JPEG, PNG, or WebP photos of the same scene, each smaller than 10 MiB. Add an optional scene description and select **Generate draft world**. Studio sends the photos to the project, estimates cameras and depth with `images2PosedRGBD`, and runs draft `posedImages2Splats`. Atlas charges the project for API usage. See the [draft reconstruction guide](https://docs.atlas.worldlabs.ai/posed-images-to-splats) and the project's rate card.
+
+Studio saves operation IDs locally so reopening the Atlas panel can resume polling. If a network error interrupts polling, select **Resume Atlas job**. Once the result is ready, select **Save SPZ** and use Studio's 3D asset upload to bring the exported splat into a scene.
 
 ## Turn protocol (`aao web ask`)
 

@@ -46,10 +46,10 @@ index 5cc7a9a0f3..dc2ba12dda 100644
    };
 diff --git a/frontend/apps/artcraft/app/src/components/generation-feed/AaoGeneration.tsx b/frontend/apps/artcraft/app/src/components/generation-feed/AaoGeneration.tsx
 new file mode 100644
-index 0000000000..22d8ef7628
+index 0000000000..755b346014
 --- /dev/null
 +++ b/frontend/apps/artcraft/app/src/components/generation-feed/AaoGeneration.tsx
-@@ -0,0 +1,497 @@
+@@ -0,0 +1,500 @@
 +import { useEffect, useRef, useState, type ReactNode } from "react";
 +import { PopoverMenu } from "@storyteller/ui-popover";
 +import { RatioIcon } from "lucide-react";
@@ -86,7 +86,7 @@ index 0000000000..22d8ef7628
 +const REFERENCE_TYPES = ["image/png", "image/jpeg", "image/webp"];
 +const MAX_REFERENCE_BYTES = 8 * 1024 * 1024;
 +
-+interface VideoReference {
++interface MediaReference {
 +  id: string;
 +  url: string;
 +  thumbnail?: string;
@@ -104,7 +104,7 @@ index 0000000000..22d8ef7628
 +  });
 +}
 +
-+async function readVideoReference({ url }: VideoReference) {
++async function readReference({ url }: MediaReference) {
 +  if (url.startsWith("data:")) return url;
 +  const fetchImage = isTauri() && /^https?:/i.test(url) ? desktopFetch : fetch;
 +  const response = await fetchImage(url);
@@ -135,7 +135,7 @@ index 0000000000..22d8ef7628
 +  }
 +}
 +
-+function VideoReferencePicker({
++function MediaReferencePicker({
 +  references,
 +  onChange,
 +  onError,
@@ -143,14 +143,16 @@ index 0000000000..22d8ef7628
 +  setReading,
 +  limit,
 +  firstFrame,
++  kind,
 +}: {
-+  references: VideoReference[];
-+  onChange: (references: VideoReference[]) => void;
++  references: MediaReference[];
++  onChange: (references: MediaReference[]) => void;
 +  onError: (message?: string) => void;
 +  reading: boolean;
 +  setReading: (reading: boolean) => void;
 +  limit: number;
 +  firstFrame: boolean;
++  kind: AaoMediaKind;
 +}) {
 +  const fileInput = useRef<HTMLInputElement>(null);
 +  const [selection, setSelection] = useState<string[]>();
@@ -187,7 +189,7 @@ index 0000000000..22d8ef7628
 +      <input
 +        ref={fileInput}
 +        type="file"
-+        aria-label="Upload video reference images"
++        aria-label={`Upload ${kind === "audio" ? "soundtrack" : kind} reference images`}
 +        hidden
 +        multiple={remaining > 1}
 +        accept={REFERENCE_TYPES.join(",")}
@@ -334,14 +336,14 @@ index 0000000000..22d8ef7628
 +  provider: Provider;
 +  selector: ReactNode;
 +  online: boolean;
-+  initialVideoReference?: VideoReference;
++  initialVideoReference?: MediaReference;
 +}) {
 +  const subject = provider.kind === "audio" ? "music" : provider.kind;
 +  const storageKey = `aao-media-job:${provider.kind}:${provider.id}`;
 +  const [prompt, setPrompt] = useState("");
 +  const [ratio, setRatio] = useState<AaoImageRatio>();
-+  const referenceLimit = provider.image_reference_limit ?? 0;
-+  const [references, setReferences] = useState<VideoReference[]>(
++  const referenceLimit = provider.image_reference_limit ?? (provider.kind === "image" ? 4 : 0);
++  const [references, setReferences] = useState<MediaReference[]>(
 +    () => referenceLimit && initialVideoReference ? [initialVideoReference] : [],
 +  );
 +  const [referenceError, setReferenceError] = useState<string>();
@@ -404,7 +406,7 @@ index 0000000000..22d8ef7628
 +      const id = await enqueueAaoMedia(provider.id, provider.kind, prompt, {
 +        aspect_ratio: ratio,
 +        references: references.length
-+          ? await Promise.all(references.map(readVideoReference))
++          ? await Promise.all(references.map(readReference))
 +          : undefined,
 +      });
 +      localStorage.setItem(storageKey, id);
@@ -460,14 +462,15 @@ index 0000000000..22d8ef7628
 +    <div className="glass rounded-lg border border-ui-controls-border bg-ui-background p-4">
 +      <div className="flex items-start gap-3">
 +        {referenceLimit > 0 && (
-+          <VideoReferencePicker
++          <MediaReferencePicker
 +            references={references}
 +            onChange={setReferences}
 +            onError={setReferenceError}
 +            reading={readingReferences}
 +            setReading={setReadingReferences}
 +            limit={referenceLimit}
-+            firstFrame={provider.id === "grok"}
++            firstFrame={provider.kind === "video" && provider.id === "grok"}
++            kind={provider.kind}
 +          />
 +        )}
 +        <textarea

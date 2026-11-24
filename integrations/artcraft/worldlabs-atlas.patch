@@ -1,0 +1,600 @@
+diff --git a/crates/desktop/artcraft/src/lib.rs b/crates/desktop/artcraft/src/lib.rs
+index 64a3f98f22..17e14a2f76 100644
+--- a/crates/desktop/artcraft/src/lib.rs
++++ b/crates/desktop/artcraft/src/lib.rs
+@@ -301,6 +301,11 @@ pub fn run() {
+     tasks_nuke_all_command,
+     update_app_preferences_command,
+     worldlabs_clear_credentials_command,
++    services::worldlabs::atlas::atlas_upload,
++    services::worldlabs::atlas::atlas_start,
++    services::worldlabs::atlas::atlas_status,
++    services::worldlabs::atlas::atlas_reconstruct,
++    services::worldlabs::atlas::atlas_download,
+     worldlabs_get_credential_info_command,
+     worldlabs_open_login_command,
+     worldlabs_receive_bearer_command,
+diff --git a/crates/desktop/artcraft/src/services/worldlabs/atlas.rs b/crates/desktop/artcraft/src/services/worldlabs/atlas.rs
+new file mode 100644
+index 0000000000..9e5afa2a12
+--- /dev/null
++++ b/crates/desktop/artcraft/src/services/worldlabs/atlas.rs
+@@ -0,0 +1,350 @@
++use std::path::{Path, PathBuf};
++use std::time::Duration;
++
++use base64::{engine::general_purpose::STANDARD, Engine};
++use reqwest::{header::HeaderValue, Client, Method, Url};
++use serde::{Deserialize, Serialize};
++use serde_json::{json, Value};
++use tokio::io::AsyncWriteExt;
++use uuid_utils::uuid::generate_random_uuid;
++
++const API: &str = "https://api.atlas.worldlabs.ai/api/v2";
++// The official CLI names its credentials by SHA-256 of the API origin.
++const CLI_ATLAS_KEY: &str = "8f83de96c71803526e3248989225f7e772b4e4fe05e2d69be4dee29cda4ec031.key";
++const MAX_IMAGE_BYTES: u64 = 10 * 1024 * 1024;
++const MAX_SPLAT_BYTES: usize = 512 * 1024 * 1024;
++
++struct Atlas {
++  client: Client,
++  base: String,
++  key: HeaderValue,
++}
++
++#[derive(Deserialize)]
++struct Operation {
++  id: String,
++  done: bool,
++  error: Option<Value>,
++  response: Option<Value>,
++}
++
++#[derive(Serialize)]
++#[serde(rename_all = "camelCase")]
++pub struct AtlasStatus {
++  done: bool,
++  asset_id: Option<String>,
++}
++
++impl Atlas {
++  fn configured() -> Result<Self, String> {
++    let key = std::env::var("WLT_API_KEY").ok().filter(|key| !key.trim().is_empty()).or_else(cli_key).unwrap_or_default();
++    if key.trim().is_empty() {
++      return Err("Configure an Atlas project key with worldlabs auth login or set WLT_API_KEY before launching ArtCraft.".into());
++    }
++    Self::new(API, key.trim())
++  }
++
++  fn new(base: &str, key: &str) -> Result<Self, String> {
++    let mut key = HeaderValue::from_str(key).map_err(|_| "Invalid Atlas API key format.")?;
++    key.set_sensitive(true);
++    let client = Client::builder().redirect(reqwest::redirect::Policy::none()).timeout(Duration::from_secs(90)).build().map_err(|_| "Could not initialize the Atlas HTTP client.")?;
++    Ok(Self { client, base: base.into(), key })
++  }
++
++  async fn request<T: serde::de::DeserializeOwned>(&self, method: Method, route: &str, body: Option<Value>, idempotency_key: Option<&str>) -> Result<T, String> {
++    let mut request = self.client.request(method, format!("{}{route}", self.base)).header("WLT-Api-Key", self.key.clone());
++    if let Some(body) = body {
++      request = request.json(&body);
++    }
++    if let Some(key) = idempotency_key {
++      request = request.header("Idempotency-Key", key);
++    }
++    let response = request.send().await.map_err(|_| "Could not reach the Atlas API.")?;
++    let status = response.status();
++    if !status.is_success() {
++      return Err(match status.as_u16() {
++        401 => "Atlas rejected the project API key.".into(),
++        402 => "The Atlas project has insufficient credits.".into(),
++        403 => "Atlas denied this request. Check the project and API key permissions.".into(),
++        _ => format!("Atlas returned HTTP {status} for {route}."),
++      });
++    }
++    response.json().await.map_err(|_| format!("Atlas returned an unexpected response for {route}."))
++  }
++
++  async fn operation(&self, id: &str) -> Result<Operation, String> {
++    validate_id(id, "op_")?;
++    self.request(Method::GET, &format!("/operations/{id}"), None, None).await
++  }
++
++  async fn upload(&self, images: &[PathBuf]) -> Result<Vec<String>, String> {
++    if !(2..=32).contains(&images.len()) {
++      return Err("Choose 2 to 32 overlapping photos of the same scene.".into());
++    }
++    let mut assets = Vec::with_capacity(images.len());
++    for image in images {
++      let name = image.file_name().and_then(|name| name.to_str()).ok_or("Invalid image filename.")?;
++      let bytes = read_image(image).await?;
++      let asset: Value = self
++        .request(
++          Method::POST,
++          "/assets",
++          Some(json!({
++            "asset": { "displayName": name, "base64": STANDARD.encode(bytes) }
++          })),
++          None,
++        )
++        .await?;
++      assets.push(asset_id(asset.get("id"))?.to_owned());
++    }
++    Ok(assets)
++  }
++
++  async fn start(&self, assets: &[String], request_id: &str) -> Result<String, String> {
++    if !(2..=32).contains(&assets.len()) {
++      return Err("Choose 2 to 32 overlapping photos of the same scene.".into());
++    }
++    if request_id.len() != 36 || !request_id.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-') {
++      return Err("Invalid Atlas request ID.".into());
++    }
++    let mut frames = Vec::with_capacity(assets.len());
++    for id in assets {
++      validate_id(id, "asset_")?;
++      frames.push(json!({ "imageAsset": { "assetId": id } }));
++    }
++    let job: Operation = self
++      .request(
++        Method::POST,
++        "/tasks:images2PosedRGBD",
++        Some(json!({
++          "frames": frames, "targetResolution": [1280, 720]
++        })),
++        Some(request_id),
++      )
++      .await?;
++    validate_id(&job.id, "op_")?;
++    Ok(job.id)
++  }
++
++  async fn reconstruct(&self, pose_id: &str, prompt: &str) -> Result<String, String> {
++    let pose = self.operation(pose_id).await?;
++    let frames = pose.result()?.and_then(|value| value.get("frames")).and_then(Value::as_array).ok_or("Atlas did not return any posed photos.")?;
++    let frames = frames.iter().map(posed_frame).collect::<Result<Vec<_>, _>>()?;
++    if !(2..=32).contains(&frames.len()) {
++      return Err("Atlas returned an invalid number of posed photos.".into());
++    }
++    let mut body = json!({ "posedFrames": frames, "refine": false });
++    if !prompt.trim().is_empty() {
++      body["prompt"] = json!(prompt.trim());
++    }
++    let job: Operation = self.request(Method::POST, "/tasks:posedImages2Splats", Some(body), Some(&format!("artcraft-draft-{pose_id}"))).await?;
++    validate_id(&job.id, "op_")?;
++    Ok(job.id)
++  }
++
++  async fn download(&self, asset: &str, path: &Path) -> Result<(), String> {
++    validate_id(asset, "asset_")?;
++    if path.extension().and_then(|ext| ext.to_str()).is_none_or(|ext| !ext.eq_ignore_ascii_case("spz")) {
++      return Err("Choose an .spz output filename.".into());
++    }
++    let signed: Value = self.request(Method::POST, &format!("/assets/{asset}:createReadUrl"), None, None).await?;
++    let url = signed["readUrl"].as_str().and_then(|url| Url::parse(url).ok()).filter(|url| url.scheme() == "https" && url.username().is_empty() && url.password().is_none()).ok_or("Atlas did not return a valid HTTPS download URL.")?;
++    // The signed URL authorizes storage reads. The project key stays on the Atlas API host.
++    let response = self.client.get(url).send().await.map_err(|_| "Could not download the Atlas splat.")?;
++    if !response.status().is_success() {
++      return Err(format!("Atlas splat download returned HTTP {}.", response.status()));
++    }
++    let temp = path.with_extension(format!("{}.part", generate_random_uuid()));
++    if let Err(error) = save_splat(response, &temp, path).await {
++      let _ = tokio::fs::remove_file(&temp).await;
++      return Err(error);
++    }
++    Ok(())
++  }
++}
++
++fn cli_key() -> Option<String> {
++  use std::io::Read;
++  let config = std::env::var_os("WORLDLABS_CONFIG_DIR").map(PathBuf::from).or_else(|| dirs::home_dir().map(|home| home.join(".config").join("worldlabs")))?;
++  let path = config.join("credentials").join(CLI_ATLAS_KEY);
++  if !std::fs::symlink_metadata(&path).ok()?.is_file() {
++    return None;
++  }
++  let mut key = String::new();
++  std::fs::File::open(path).ok()?.take(4097).read_to_string(&mut key).ok()?;
++  (key.len() <= 4096).then_some(key)
++}
++
++impl Operation {
++  fn result(&self) -> Result<Option<&Value>, String> {
++    if !self.done {
++      return Ok(None);
++    }
++    if let Some(error) = &self.error {
++      let message = error["message"].as_str().unwrap_or("Task failed.");
++      return Err(format!("Atlas operation {}: {message}", self.id));
++    }
++    self.response.as_ref().map(Some).ok_or_else(|| format!("Atlas operation {} returned no result.", self.id))
++  }
++}
++
++fn validate_id(id: &str, prefix: &str) -> Result<(), String> {
++  if id.len() > prefix.len() && id.len() <= 100 && id.starts_with(prefix) && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-') {
++    return Ok(());
++  }
++  Err("Atlas returned or received an invalid resource ID.".into())
++}
++
++fn asset_id(value: Option<&Value>) -> Result<&str, String> {
++  let id = value.and_then(Value::as_str).ok_or("Atlas did not return an asset ID.")?;
++  validate_id(id, "asset_")?;
++  Ok(id)
++}
++
++fn posed_frame(frame: &Value) -> Result<Value, String> {
++  let image = asset_id(frame.pointer("/imageAsset/assetId"))?;
++  let depth = asset_id(frame.pointer("/depth/depthAsset/assetId"))?;
++  let camera = frame.get("camera").filter(|camera| camera.is_object()).ok_or("Atlas did not return a camera.")?;
++  Ok(json!({
++    "imageAsset": { "assetId": image },
++    "depth": { "depthAsset": { "assetId": depth } },
++    "camera": camera
++  }))
++}
++
++async fn read_image(path: &Path) -> Result<Vec<u8>, String> {
++  use tokio::io::{AsyncReadExt, BufReader};
++  let file = tokio::fs::File::open(path).await.map_err(|_| "Could not open an Atlas input photo.")?;
++  let mut data = Vec::new();
++  BufReader::new(file).take(MAX_IMAGE_BYTES).read_to_end(&mut data).await.map_err(|_| "Could not read an Atlas input photo.")?;
++  if data.len() as u64 >= MAX_IMAGE_BYTES {
++    return Err("Each Atlas photo must be smaller than 10 MiB.".into());
++  }
++  if !(data.starts_with(b"\xff\xd8\xff") || data.starts_with(b"\x89PNG\r\n\x1a\n") || (data.starts_with(b"RIFF") && data.get(8..12) == Some(b"WEBP"))) {
++    return Err("Atlas photos must be JPEG, PNG, or WebP.".into());
++  }
++  Ok(data)
++}
++
++async fn save_splat(mut response: reqwest::Response, temp: &Path, path: &Path) -> Result<(), String> {
++  let mut file = tokio::fs::OpenOptions::new().write(true).create_new(true).open(temp).await.map_err(|_| "Could not create the Atlas download file.")?;
++  let mut size = 0;
++  while let Some(chunk) = response.chunk().await.map_err(|_| "Atlas splat download was interrupted.")? {
++    size += chunk.len();
++    if size > MAX_SPLAT_BYTES {
++      return Err("Atlas splat exceeds the 512 MiB download limit.".into());
++    }
++    file.write_all(&chunk).await.map_err(|_| "Could not write the Atlas splat.")?;
++  }
++  if size == 0 {
++    return Err("Atlas returned an empty splat.".into());
++  }
++  file.sync_all().await.map_err(|_| "Could not finish writing the Atlas splat.")?;
++  drop(file);
++  tokio::fs::rename(temp, path).await.map_err(|_| "Could not save the Atlas splat to the selected path.".into())
++}
++
++#[tauri::command]
++pub async fn atlas_upload(images: Vec<PathBuf>) -> Result<Vec<String>, String> {
++  Atlas::configured()?.upload(&images).await
++}
++
++#[tauri::command]
++pub async fn atlas_start(assets: Vec<String>, request_id: String) -> Result<String, String> {
++  Atlas::configured()?.start(&assets, &request_id).await
++}
++
++#[tauri::command]
++pub async fn atlas_status(operation_id: String) -> Result<AtlasStatus, String> {
++  let op = Atlas::configured()?.operation(&operation_id).await?;
++  let asset_id = op.result()?.and_then(|value| value.pointer("/draftSplat/assetId")).map(|id| asset_id(Some(id)).map(str::to_owned)).transpose()?;
++  Ok(AtlasStatus { done: op.done, asset_id })
++}
++
++#[tauri::command]
++pub async fn atlas_reconstruct(pose_id: String, prompt: String) -> Result<String, String> {
++  Atlas::configured()?.reconstruct(&pose_id, &prompt).await
++}
++
++#[tauri::command]
++pub async fn atlas_download(asset: String, path: PathBuf) -> Result<(), String> {
++  Atlas::configured()?.download(&asset, &path).await
++}
++
++#[cfg(test)]
++mod tests {
++  use super::*;
++  use std::io::{BufRead, BufReader, Read, Write};
++  use std::net::TcpListener;
++
++  fn fixture(responses: Vec<Value>) -> (Atlas, std::thread::JoinHandle<Vec<(String, String, Value)>>) {
++    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
++    let base = format!("http://{}", listener.local_addr().unwrap());
++    let thread = std::thread::spawn(move || {
++      responses
++        .into_iter()
++        .map(|response| {
++          let (mut stream, _) = listener.accept().unwrap();
++          stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
++          let mut reader = BufReader::new(&mut stream);
++          let mut request = String::new();
++          reader.read_line(&mut request).unwrap();
++          let mut headers = String::new();
++          let mut length = 0;
++          loop {
++            let mut header = String::new();
++            if reader.read_line(&mut header).unwrap() == 0 || header == "\r\n" {
++              break;
++            }
++            if let Some(value) = header.to_ascii_lowercase().strip_prefix("content-length:") {
++              length = value.trim().parse().unwrap();
++            }
++            headers.push_str(&header.to_ascii_lowercase());
++          }
++          let mut body = vec![0; length];
++          reader.read_exact(&mut body).unwrap();
++          let body = if body.is_empty() { Value::Null } else { serde_json::from_slice(&body).unwrap() };
++          let response = response.to_string();
++          write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response}", response.len()).unwrap();
++          (request, headers, body)
++        })
++        .collect()
++    });
++    (Atlas::new(&base, "fixture-key").unwrap(), thread)
++  }
++
++  #[test]
++  fn atlas_poses_then_reconstructs_with_project_assets() {
++    let frame = json!({
++        "imageAsset": {"assetId": "asset_rgb", "url": "https://example.com/rgb.png"},
++        "depth": {"depthAsset": {"assetId": "asset_depth"}},
++        "camera": {"intrinsics": {"width": 1280, "height": 720}}
++    });
++    let (atlas, trace) = fixture(vec![json!({"id": "op_pose", "done": false}), json!({"id": "op_pose", "done": true, "response": {"frames": [frame, frame]}}), json!({"id": "op_splat", "done": false}), json!({"id": "op_splat", "done": true, "response": {"draftSplat": {"assetId": "asset_splat"}}})]);
++    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
++    runtime.block_on(async {
++      let pose = atlas.start(&["asset_one".into(), "asset_two".into()], "12345678-1234-1234-1234-123456789abc").await.unwrap();
++      let splat = atlas.reconstruct(&pose, "A pottery workshop").await.unwrap();
++      let result = atlas.operation(&splat).await.unwrap();
++      assert_eq!(result.result().unwrap().unwrap()["draftSplat"]["assetId"], "asset_splat");
++    });
++    let requests = trace.join().unwrap();
++    assert!(requests.iter().all(|(_, headers, _)| headers.contains("wlt-api-key: fixture-key")));
++    assert!(requests[0].0.starts_with("POST /tasks:images2PosedRGBD "));
++    assert_eq!(requests[0].2["frames"][1]["imageAsset"]["assetId"], "asset_two");
++    assert_eq!(requests[0].2["targetResolution"], json!([1280, 720]));
++    assert!(requests[2].0.starts_with("POST /tasks:posedImages2Splats "));
++    assert!(requests[2].1.contains("idempotency-key: artcraft-draft-op_pose"));
++    assert_eq!(requests[2].2["refine"], false);
++    assert_eq!(requests[2].2["prompt"], "A pottery workshop");
++    assert_eq!(requests[2].2["posedFrames"][0]["depth"]["depthAsset"]["assetId"], "asset_depth");
++    assert!(requests[2].2["posedFrames"][0]["imageAsset"].get("url").is_none());
++  }
++
++  #[test]
++  fn atlas_rejects_path_segments_and_incomplete_frames() {
++    assert!(validate_id("op_../foo", "op_").is_err());
++    assert!(posed_frame(&json!({"imageAsset": {"assetId": "asset_image"}})).is_err());
++    assert!(Operation { id: "op_failed".into(), done: true, error: Some(json!({"message": "Failed"})), response: None }.result().unwrap_err().contains("op_failed"));
++  }
++}
+diff --git a/crates/desktop/artcraft/src/services/worldlabs/mod.rs b/crates/desktop/artcraft/src/services/worldlabs/mod.rs
+index faed1e2dde..37b5f33dd4 100644
+--- a/crates/desktop/artcraft/src/services/worldlabs/mod.rs
++++ b/crates/desktop/artcraft/src/services/worldlabs/mod.rs
+@@ -1,7 +1,7 @@
+-//! Deprecated direct WorldLabs integration. Retained for legacy handlers and task polling.
+-//! New desktop generations use ArtCraft; account management is no longer exposed in the frontend.
++//! Atlas Developer API and legacy Marble account integration.
+
++pub mod atlas;
+ pub mod commands;
+ pub mod state;
+ pub mod threads;
+-pub mod windows;
+\ No newline at end of file
++pub mod windows;
+diff --git a/frontend/apps/artcraft/app/src/pages/PageImageTo3DWorld/AtlasWorld.tsx b/frontend/apps/artcraft/app/src/pages/PageImageTo3DWorld/AtlasWorld.tsx
+new file mode 100644
+index 0000000000..2258f76448
+--- /dev/null
++++ b/frontend/apps/artcraft/app/src/pages/PageImageTo3DWorld/AtlasWorld.tsx
+@@ -0,0 +1,166 @@
++import { useEffect, useState } from "react";
++import { invoke } from "@tauri-apps/api/core";
++import { open, save } from "@tauri-apps/plugin-dialog";
++
++type Run =
++  | { stage: "submit"; assets: string[]; requestId: string; prompt: string }
++  | { stage: "pose"; operationId: string; prompt: string }
++  | { stage: "splat"; operationId: string }
++  | { stage: "ready"; asset: string };
++
++const STORAGE_KEY = "artcraft.atlas.run";
++const MAX_IMAGES = 32;
++
++function readRun(): Run | undefined {
++  try {
++    return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null") ?? undefined;
++  } catch {
++    return undefined;
++  }
++}
++
++async function advance(run: Exclude<Run, { stage: "ready" }>): Promise<Run> {
++  if (run.stage === "submit") {
++    const operationId = await invoke<string>("atlas_start", {
++      assets: run.assets, requestId: run.requestId,
++    });
++    return { stage: "pose", operationId, prompt: run.prompt };
++  }
++  const status = await invoke<{ done: boolean; assetId?: string }>(
++    "atlas_status", { operationId: run.operationId },
++  );
++  if (!status.done) return run;
++  if (run.stage === "pose") {
++    const operationId = await invoke<string>("atlas_reconstruct", {
++      poseId: run.operationId, prompt: run.prompt,
++    });
++    return { stage: "splat", operationId };
++  }
++  if (!status.assetId) throw new Error("Atlas finished without an SPZ asset.");
++  return { stage: "ready", asset: status.assetId };
++}
++
++export function AtlasWorld() {
++  const [photos, setPhotos] = useState<string[]>([]);
++  const [prompt, setPrompt] = useState("");
++  const [run, setRun] = useState(readRun);
++  const [busy, setBusy] = useState(false);
++  const [error, setError] = useState<string>();
++  const [saved, setSaved] = useState<string>();
++  const active = run && run.stage !== "ready";
++
++  const updateRun = (next: Run) => {
++    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
++    setRun(next);
++  };
++
++  useEffect(() => {
++    if (!run || run.stage === "ready" || error) return;
++    let disposed = false;
++    let timer: ReturnType<typeof setTimeout>;
++    async function poll(current: Exclude<Run, { stage: "ready" }>) {
++      try {
++        const next = await advance(current);
++        if (disposed) return;
++        if (next === current) timer = setTimeout(() => void poll(current), 3500);
++        else updateRun(next);
++      } catch (failure) {
++        if (!disposed) setError(String(failure));
++      }
++    }
++    void poll(run);
++    return () => {
++      disposed = true;
++      clearTimeout(timer);
++    };
++  }, [run, error]);
++
++  const choosePhotos = async () => {
++    try {
++      const chosen = await open({
++        multiple: true,
++        filters: [{ name: "Photos", extensions: ["jpg", "jpeg", "png", "webp"] }],
++      });
++      if (!chosen) return;
++      if (chosen.length > MAX_IMAGES) throw new Error("Select no more than 32 photos.");
++      setPhotos(chosen);
++      setError(undefined);
++    } catch (failure) {
++      setError(String(failure));
++    }
++  };
++
++  const start = async () => {
++    setBusy(true);
++    setError(undefined);
++    setSaved(undefined);
++    try {
++      const assets = await invoke<string[]>("atlas_upload", { images: photos });
++      updateRun({ stage: "submit", assets, requestId: crypto.randomUUID(), prompt });
++    } catch (failure) {
++      setError(String(failure));
++    } finally {
++      setBusy(false);
++    }
++  };
++
++  const download = async (asset: string) => {
++    setBusy(true);
++    setError(undefined);
++    try {
++      const path = await save({
++        defaultPath: "Atlas world.spz",
++        filters: [{ name: "Gaussian splat", extensions: ["spz"] }],
++      });
++      if (!path) return;
++      await invoke("atlas_download", { asset, path });
++      setSaved(path);
++    } catch (failure) {
++      setError(String(failure));
++    } finally {
++      setBusy(false);
++    }
++  };
++
++  return (
++    <section className="mx-auto max-w-3xl space-y-5 px-6 pb-8 pt-20">
++      <h2 className="text-xl font-semibold">World Labs Atlas</h2>
++      <p>Add 2–32 overlapping photos of the same scene to generate a draft Gaussian splat.</p>
++      <p className="text-sm opacity-80">Atlas bills the project API key configured for Studio.</p>
++      <div className="flex items-center gap-3">
++        <button type="button" className="rounded border px-3 py-2 disabled:opacity-50"
++          disabled={busy || Boolean(active)} onClick={() => void choosePhotos()}>Choose photos</button>
++        <span>{photos.length} selected</span>
++      </div>
++      <textarea aria-label="Scene description" className="w-full rounded border bg-ui-controls p-3"
++        placeholder="Optional scene description" rows={3} maxLength={2000}
++        disabled={busy || Boolean(active)} value={prompt}
++        onChange={(event) => setPrompt(event.target.value)} />
++      <div className="flex flex-wrap gap-3">
++        <button type="button" className="rounded bg-primary px-4 py-2 text-white disabled:opacity-50"
++          disabled={photos.length < 2 || busy || Boolean(active)}
++          onClick={() => void start()}>Generate draft world</button>
++        {run?.stage === "ready" && (
++          <button type="button" className="rounded border px-3 py-2"
++            disabled={busy} onClick={() => void download(run.asset)}>Save SPZ</button>
++        )}
++        {active && error && (
++          <>
++            <button type="button" className="rounded border px-3 py-2"
++              onClick={() => setError(undefined)}>Resume Atlas job</button>
++            <button type="button" className="rounded border px-3 py-2" onClick={() => {
++              localStorage.removeItem(STORAGE_KEY);
++              setRun(undefined);
++              setError(undefined);
++            }}>Clear from Studio</button>
++          </>
++        )}
++      </div>
++      {active && !error && (
++        <p role="status">{run.stage === "splat" ? "Reconstructing the splat…" : "Estimating cameras and depth…"}</p>
++      )}
++      {error && <p role="alert">{error}</p>}
++      {saved && <p role="status">Saved to {saved}</p>}
++    </section>
++  );
++}
+diff --git a/frontend/apps/artcraft/app/src/pages/PageImageTo3DWorld/ImageTo3DWorld.tsx b/frontend/apps/artcraft/app/src/pages/PageImageTo3DWorld/ImageTo3DWorld.tsx
+index b4f92ba37d..a4d15bfd1f 100644
+--- a/frontend/apps/artcraft/app/src/pages/PageImageTo3DWorld/ImageTo3DWorld.tsx
++++ b/frontend/apps/artcraft/app/src/pages/PageImageTo3DWorld/ImageTo3DWorld.tsx
+@@ -1,12 +1,30 @@
++import { useState } from "react";
+ import { ImageTo3DExperience } from "../../components/experiences/ImageTo3DExperience";
++import { AtlasWorld } from "./AtlasWorld";
+
+ export const ImageTo3DWorld = () => {
++  const [model, setModel] = useState<"marble" | "atlas">("marble");
+   return (
+-    <ImageTo3DExperience
+-      title="Image to 3D World"
+-      subtitle="Generate 3D worlds from an image with World Labs"
+-      variant="world"
+-    />
++    <>
++      <div className="absolute right-6 top-4 z-20">
++        <select
++          aria-label="World generation engine"
++          className="rounded border border-ui-controls-border bg-ui-controls px-3 py-2"
++          value={model}
++          onChange={(event) => setModel(event.target.value === "atlas" ? "atlas" : "marble")}
++        >
++          <option value="marble">Marble</option>
++          <option value="atlas">World Labs Atlas</option>
++        </select>
++      </div>
++      {model === "atlas" ? <AtlasWorld /> : (
++        <ImageTo3DExperience
++          title="Image to 3D World"
++          subtitle="Generate 3D worlds from an image with World Labs"
++          variant="world"
++        />
++      )}
++    </>
+   );
+ };
+

@@ -12,6 +12,11 @@ Sources:
   codex     ~/.codex/sessions/**/rollout-*.jsonl  cumulative token_count events (deltas)
   opencode  ~/.local/share/opencode/opencode.db   message.data.tokens
   kilo      ~/.local/share/kilo/kilo.db           same schema as opencode
+  copilot   ~/.copilot/session-state/{*/events.jsonl,*.jsonl}
+                                                  session.usage_record per model call; older
+                                                  sessions only have session.shutdown totals
+  kiro      ~/.kiro/sessions/cli/*.json           per-turn requests and credits; Kiro CLI logs
+                                                  no token counts, so its rows carry 0 tokens
 
 Each file's rows are cached by (mtime, size) in ~/.cache/aao/usage_scan.json so
 repeated scans only re-read changed files.
@@ -25,7 +30,7 @@ import sys
 from datetime import datetime, timezone
 
 SCHEMA = "usage-rows-v1"
-CACHE_VERSION = 2
+CACHE_VERSION = 3
 TOKEN_FIELDS = ("input", "cache_write_5m", "cache_write_1h", "cache_read", "output", "reasoning")
 
 
@@ -50,7 +55,7 @@ class _Rows:
     def __init__(self):
         self.rows = {}
 
-    def add(self, agent, session, project, model, ts, tokens):
+    def add(self, agent, session, project, model, ts, tokens, requests=1, credits=0.0):
         day = _day(ts)
         if day is None:
             return
@@ -58,10 +63,11 @@ class _Rows:
         row = self.rows.get(key)
         if row is None:
             row = {"agent": agent, "session": session, "project": project, "model": model or "unknown",
-                   "day": day, "first_ts": ts, "last_ts": ts, "requests": 0}
+                   "day": day, "first_ts": ts, "last_ts": ts, "requests": 0, "credits": 0.0}
             row.update({field: 0 for field in TOKEN_FIELDS})
             self.rows[key] = row
-        row["requests"] += 1
+        row["requests"] += requests
+        row["credits"] = round(row["credits"] + float(credits or 0), 6)
         for field in TOKEN_FIELDS:
             row[field] += int(tokens.get(field) or 0)
         if project and not row["project"]:
@@ -226,6 +232,121 @@ def scan_opencode_db(path, agent):
     return rows.values()
 
 
+# --------------------------------------------------------- GitHub Copilot
+
+def copilot_tokens(usage):
+    """Copilot usage: `inputTokens` includes cache reads and cache writes (verified against
+    session.shutdown tokenDetails); output includes reasoning. Cache writes with a TTL of an
+    hour or more are long-TTL writes."""
+    read = int(usage.get("cacheReadTokens") or 0)
+    write = int(usage.get("cacheWriteTokens") or 0)
+    long_ttl = int(usage.get("cacheTtlSeconds") or 0) >= 3600
+    return {
+        "input": max(int(usage.get("inputTokens") or 0) - read - write, 0),
+        "cache_write_5m": 0 if long_ttl else write,
+        "cache_write_1h": write if long_ttl else 0,
+        "cache_read": read,
+        "output": int(usage.get("outputTokens") or 0),
+        "reasoning": int(usage.get("reasoningTokens") or 0),
+    }
+
+
+_COPILOT_KEYS = ("inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "reasoningTokens")
+
+
+def scan_copilot_file(path):
+    """Prefer per-call session.usage_record events. A session without them (older CLI
+    versions) falls back to session.shutdown modelMetrics: each shutdown is one run, unless
+    it is a running total (the premium-request total and every count grew), then only the
+    increase is counted."""
+    rows = _Rows()
+    session = project = None
+    records, shutdowns = [], []
+    with open(path, encoding="utf-8", errors="replace") as handle:
+        for line in handle:
+            if ('"session.start"' not in line and '"session.usage_record"' not in line
+                    and '"session.shutdown"' not in line):
+                continue
+            try:
+                entry = json.loads(line)
+            except ValueError:
+                continue
+            data = entry.get("data") or {}
+            kind = entry.get("type")
+            if kind == "session.start":
+                session = session or data.get("sessionId")
+                project = project or (data.get("context") or {}).get("cwd")
+            elif kind == "session.usage_record" and isinstance(data.get("usage"), dict):
+                records.append((entry.get("timestamp"), data["usage"]))
+            elif kind == "session.shutdown":
+                shutdowns.append((entry.get("timestamp"), data))
+    if not session:
+        base = os.path.dirname(path) if os.path.basename(path) == "events.jsonl" else path[:-len(".jsonl")]
+        session = os.path.basename(base)
+    if records:
+        for ts, usage in records:
+            rows.add("copilot", session, project, usage.get("model") or usage.get("responseModel"), ts,
+                     copilot_tokens(usage))
+        return rows.values()
+    previous = None
+    for ts, data in shutdowns:
+        metrics = data.get("modelMetrics") or {}
+        current = {model: {k: int((m.get("usage") or {}).get(k) or 0) for k in _COPILOT_KEYS}
+                   for model, m in metrics.items() if isinstance(m, dict)}
+        premium = data.get("totalPremiumRequests") or 0
+        running = (previous is not None and premium > previous[1] and set(previous[0]) <= set(current)
+                   and all(v >= previous[0].get(model, {}).get(k, 0)
+                           for model, counts in current.items() for k, v in counts.items()))
+        for model, counts in current.items():
+            requests = int(((metrics[model].get("requests") or {}).get("count")) or 1)
+            if running:
+                counts = {k: v - previous[0].get(model, {}).get(k, 0) for k, v in counts.items()}
+                requests = max(requests - int(previous[2].get(model, 0)), 1)
+            if any(counts.values()):
+                rows.add("copilot", session, project, model, ts, copilot_tokens(counts), requests=requests)
+        previous = (current, premium,
+                    {model: int(((m.get("requests") or {}).get("count")) or 0) for model, m in metrics.items()
+                     if isinstance(m, dict)})
+    return rows.values()
+
+
+# ------------------------------------------------------------------- Kiro
+
+def scan_kiro_session(path):
+    """Kiro CLI session metadata, one entry per user turn. The CLI writes zero token counts,
+    so a row records requests and metered credits; token counts are used only when set."""
+    rows = _Rows()
+    try:
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            doc = json.load(handle)
+    except (OSError, ValueError):
+        return []
+    if not isinstance(doc, dict):
+        return []
+    state = doc.get("session_state") or {}
+    turns = (state.get("conversation_metadata") or {}).get("user_turn_metadatas") or []
+    session = doc.get("session_id") or os.path.basename(path)[:-len(".json")]
+    for turn in turns:
+        if not isinstance(turn, dict):
+            continue
+        credits = sum(float(m.get("value") or 0) for m in turn.get("metering_usage") or []
+                      if isinstance(m, dict) and str(m.get("unit", "")).lower().startswith("credit"))
+        tokens = {
+            "input": int(turn.get("input_token_count") or 0),
+            "cache_write_5m": int(turn.get("cache_write_input_token_count") or 0),
+            "cache_write_1h": 0,
+            "cache_read": int(turn.get("cache_read_input_token_count") or 0),
+            "output": int(turn.get("output_token_count") or 0),
+            "reasoning": 0,
+        }
+        ts = turn.get("end_timestamp") or doc.get("updated_at") or doc.get("created_at")
+        model = turn.get("model") or "auto"
+        # Kiro's "auto" router is not a priceable model; keep it distinct from real model ids.
+        rows.add("kiro", session, doc.get("cwd"), "kiro/auto" if model == "auto" else model, ts, tokens,
+                 requests=int(turn.get("total_request_count") or 1), credits=credits)
+    return rows.values()
+
+
 # ----------------------------------------------------------------- scanning
 
 def sources(home=None):
@@ -235,6 +356,11 @@ def sources(home=None):
         found.append(("claude", path))
     for path in glob.glob(os.path.join(home, ".codex", "sessions", "**", "rollout-*.jsonl"), recursive=True):
         found.append(("codex", path))
+    state = os.path.join(home, ".copilot", "session-state")
+    for path in glob.glob(os.path.join(state, "*", "events.jsonl")) + glob.glob(os.path.join(state, "*.jsonl")):
+        found.append(("copilot", path))
+    for path in glob.glob(os.path.join(home, ".kiro", "sessions", "cli", "*.json")):
+        found.append(("kiro", path))
     for agent, rel in (("opencode", (".local", "share", "opencode", "opencode.db")),
                        ("kilo", (".local", "share", "kilo", "kilo.db"))):
         path = os.path.join(home, *rel)
@@ -248,6 +374,10 @@ def _scan_one(agent, path):
         return scan_claude_file(path)
     if agent == "codex":
         return scan_codex_file(path)
+    if agent == "copilot":
+        return scan_copilot_file(path)
+    if agent == "kiro":
+        return scan_kiro_session(path)
     return scan_opencode_db(path, agent)
 
 

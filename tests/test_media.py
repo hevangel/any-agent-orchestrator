@@ -38,6 +38,46 @@ def test_craft_api_requires_its_own_bearer_and_native_request(tmp_path):
                                json={**request, **invalid}).status_code == 422
 
 
+def test_muse_soundtrack_routes_image_references_to_video_and_exports_audio(tmp_path, monkeypatch):
+    image = b"\x89PNG\r\n\x1a\nsoundtrack reference"
+
+    def generate_video(prompt, directory, timeout_s, *, references):
+        assert "inspiration for the soundtrack" in prompt
+        assert prompt.endswith("A gentle instrumental")
+        assert [path.read_bytes() for path in references] == [image]
+        video = Path(directory) / "muse.mp4"
+        video.touch()
+        return {"ok": True, "path": str(video)}
+
+    def extract(args, *, timeout):
+        assert args[args.index("-map") + 1] == "0:a:0"
+        assert Path(args[args.index("-i") + 1]).name == "muse.mp4"
+        Path(args[-1]).write_bytes(b"ID3 soundtrack")
+        return True, "", None
+
+    monkeypatch.setattr(media.shutil, "which", lambda _: "ffmpeg")
+    monkeypatch.setattr(media.web_muse, "generate_video", generate_video)
+    monkeypatch.setattr(media.web_muse, "_run", extract)
+    request = {
+        "kind": "audio", "prompt": "A gentle instrumental",
+        "references": ["data:image/png;base64," + base64.b64encode(image).decode()],
+    }
+    with TestClient(media.create_app(tmp_path), headers=HEADERS, base_url="http://localhost") as client:
+        providers = {row["id"]: row.get("image_reference_limit") for row in client.get("/providers").json()
+                     if row["kind"] == "audio"}
+        assert providers == {"muse": 4, "grok": None, "flow-music": None}
+        for provider in ("grok", "flow-music"):
+            assert client.post("/jobs", json={**request, "provider": provider}).status_code == 422
+        response = client.post("/jobs", json={**request, "provider": "muse"})
+        assert response.status_code == 202
+        url = f'/jobs/{response.json()["id"]}'
+        deadline = monotonic() + 3
+        while (job := client.get(url).json())["state"] == "pending" and monotonic() < deadline:
+            sleep(0.01)
+        assert job == {"state": "succeeded", "files": ["Muse soundtrack.mp3"]}
+        assert client.get(f"{url}/files/0").content == b"ID3 soundtrack"
+
+
 @pytest.mark.parametrize(("provider", "filename", "data"), [
     ("flow-music", "song.mp3", b"ID3 a song"),
     ("muse", "soundtrack.mp3", b"ID3 a soundtrack"),

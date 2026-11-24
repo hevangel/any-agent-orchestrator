@@ -3,8 +3,10 @@
 Sources, best first:
   Agent status screens   each CLI's own /usage or /status through herdr (agents.json quota_screen):
                          Claude, Codex, Cursor, Kiro, Antigravity
-  quota-cli usage --json Copilot, Grok and others without a quota screen; replaced by a readable screen
+  Copilot entitlement    GitHub's copilot_internal/user document read with the gh token: Copilot
+  quota-cli usage --json Grok and others without a quota screen; replaced by a readable screen
   Codex session logs     rate_limits recorded in ~/.codex/sessions when no Codex screen was read
+  Web usage pages        the site's own usage panel in the saved browser profile: Muse (web_muse.quota)
 """
 
 import glob
@@ -96,6 +98,8 @@ def collect():
     if not ok:
         errors["quota-cli"] = err
     accounts = collect_screen_accounts(accounts, errors)
+    accounts = collect_copilot_accounts(accounts, errors, tool_env)
+    accounts = collect_web_accounts(accounts, errors)
     if not any(a["provider"] == "codex" and not a.get("aao_account") and a.get("windows") for a in accounts):
         try:
             fallback = from_codex_logs()
@@ -104,8 +108,31 @@ def collect():
         except (OSError, ValueError) as exc:
             errors["codex-logs"] = str(exc)
     accounts = [a for a in accounts if a["provider"] not in EXCLUDED]
+    prices = plan_prices(errors=errors)
+    for account in accounts:
+        price = prices.get(f"{account['provider']}:{account.get('aao_account') or account.get('account')}",
+                           prices.get(account["provider"]))
+        if price is not None:
+            account["plan_usd_month"] = price
     return {"schema": "quotas-v1", "accounts": accounts, "errors": errors,
             "collected_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+
+
+def plan_prices(settings=None, errors=None):
+    """Monthly subscription price per provider (or provider:account) from AAO_QUOTA_PLAN_USD,
+    e.g. `claude=20,codex=20,agy=19.99,copilot=0`. The dashboard divides it into a weekly value
+    to show what the unused share of each window is worth. Providers left out show no value."""
+    from orchestrator.config import Settings
+
+    prices = {}
+    for item in (settings or Settings()).list("AAO_QUOTA_PLAN_USD", []):
+        key, _, value = item.partition("=")
+        try:
+            prices[provider_id(key.split(":")[0]) + (":" + key.split(":", 1)[1].strip() if ":" in key else "")] =                 float(value.strip().lstrip("$"))
+        except ValueError:
+            if errors is not None:
+                errors["plan-prices"] = f"AAO_QUOTA_PLAN_USD: cannot read {item!r} (use provider=monthly USD)"
+    return prices
 
 
 def collect_screen_accounts(accounts, errors):
@@ -134,6 +161,102 @@ def collect_screen_accounts(accounts, errors):
                 accounts = [a for a in accounts if a not in existing] + result["accounts"]
             if result["error"]:
                 errors[f"{cli}-screen" + (f":{aid}" if aid else "")] = result["error"]
+    return accounts
+
+
+COPILOT_USER = "https://api.github.com/copilot_internal/user"
+COPILOT_QUOTAS = {"premium_interactions": "Premium requests", "chat": "Chat", "completions": "Completions"}
+COPILOT_SKUS = {"free_limited_copilot": "Free", "copilot_pro": "Pro", "copilot_pro_plus": "Pro+",
+                "copilot_for_business": "Business", "copilot_enterprise": "Enterprise"}
+
+
+def from_copilot_user(data, now=None):
+    """Monthly windows from GitHub's Copilot entitlement document (the one the IDEs and the
+    Copilot CLI read). Unlimited quotas and quotas the plan does not include are skipped."""
+    now = now or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    reset = data.get("quota_reset_date_utc") or (f"{data['quota_reset_date']}T00:00:00Z" if data.get("quota_reset_date") else None)
+    if reset:
+        reset = datetime.fromisoformat(reset.replace("Z", "+00:00")).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    windows = []
+    snapshots = data.get("quota_snapshots") or {}
+    for key, scope in COPILOT_QUOTAS.items():
+        snap = snapshots.get(key)
+        if not isinstance(snap, dict) or snap.get("unlimited") or not snap.get("entitlement"):
+            continue
+        remaining = snap.get("percent_remaining")
+        if remaining is None:
+            continue
+        window = _window("monthly", 100 - float(remaining), reset, seconds=2592000, scope=scope)
+        limit, left = snap.get("entitlement"), snap.get("remaining", snap.get("quota_remaining"))
+        window.update(limit=limit, remaining=left, used=None if left is None else limit - left,
+                      reset_text="resets " + (data.get("quota_reset_date") or "monthly"))
+        windows.append(window)
+    sku = data.get("access_type_sku")
+    return {"provider": "copilot", "account": data.get("login"), "plan": COPILOT_SKUS.get(sku, sku or data.get("copilot_plan")),
+            "status": "live" if windows else "unavailable",
+            "error": None if windows else "no limited Copilot quota on this plan",
+            "retrieved_at": now, "windows": windows, "balance": None, "source": "copilot-api"}
+
+
+def _github_token(env=None):
+    ok, out, _ = _run(["gh", "auth", "token"], timeout=20, env=env) if shutil.which("gh") else (False, "", "")
+    token = out.strip() if ok else ""
+    return token or os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+
+
+def collect_copilot_accounts(accounts, errors, env=None):
+    """GitHub Copilot monthly quotas, read with the signed-in gh token (AAO_QUOTA_COPILOT=0 disables).
+    A read replaces quota-cli's Copilot row; a failure leaves it in place."""
+    from orchestrator.config import Settings
+    from orchestrator.state import http_get_json
+
+    if Settings().get("AAO_QUOTA_COPILOT", "1") == "0":
+        return accounts
+    token = _github_token(env)
+    if not token:
+        return accounts
+    try:
+        data = http_get_json(COPILOT_USER, {"Authorization": f"token {token}", "Accept": "application/json",
+                                            "X-GitHub-Api-Version": "2025-04-01"}, timeout=20)
+        row = from_copilot_user(data)
+    except Exception as exc:  # network, 401/404 (no Copilot), or a changed document
+        errors["copilot-api"] = str(exc)
+        return accounts
+    if row["windows"]:
+        accounts = [a for a in accounts if a["provider"] != "copilot" or a.get("aao_account")] + [row]
+    elif not any(a["provider"] == "copilot" for a in accounts):
+        accounts = accounts + [row]
+    return accounts
+
+
+WEB_READERS = {"muse": ("orchestrator.web_muse", "quota", "has_profile")}
+
+
+def collect_web_accounts(accounts, errors):
+    """Web subscriptions read from the site's own usage page in the saved browser profile
+    (AAO_QUOTA_WEB_TARGETS, default muse; `none` disables). Targets never logged in are skipped."""
+    import importlib
+
+    from orchestrator.config import Settings
+
+    for target in Settings().list("AAO_QUOTA_WEB_TARGETS", list(WEB_READERS)):
+        if target == "none":
+            break
+        if target not in WEB_READERS:
+            errors[f"{target}-web"] = "no web quota reader"
+            continue
+        module, read, signed_in = WEB_READERS[target]
+        driver = importlib.import_module(module)
+        if not getattr(driver, signed_in)():
+            continue
+        try:
+            row = getattr(driver, read)()
+        except Exception as exc:  # a broken page must not stop the other collectors
+            row = {"provider": target, "error": str(exc), "windows": []}
+        if row.get("windows"):
+            accounts = [a for a in accounts if a["provider"] != row["provider"]] + [row]
+        if row.get("error"):
+            errors[f"{target}-web"] = row["error"]
     return accounts
 
 

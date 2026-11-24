@@ -44,13 +44,14 @@ def test_web_generation_routes_and_reports_downloads(target, kind, module, funct
     assert len(result["files"]) == 1
 
 
-@pytest.mark.parametrize(("target", "module", "function", "count"), [
-    ("flow", web_flow, "generate", 3),
-    ("gemini", web_gemini_video, "generate", 1),
-    ("grok", web_grok, "generate_video", 1),
-    ("muse", web_muse_video, "generate", 4),
+@pytest.mark.parametrize(("kind", "target", "module", "function", "count"), [
+    ("video", "flow", web_flow, "generate", 3),
+    ("video", "gemini", web_gemini_video, "generate", 1),
+    ("video", "grok", web_grok, "generate_video", 1),
+    ("video", "muse", web_muse_video, "generate", 4),
+    ("audio", "muse", web_muse, "generate_audio", 4),
 ])
-def test_web_video_passes_references_in_order(target, module, function, count, tmp_path, monkeypatch, capsys):
+def test_web_media_passes_references_in_order(kind, target, module, function, count, tmp_path, monkeypatch, capsys):
     references = [tmp_path / f"paper boat {i}.PNG" for i in range(count)]
     for path in references:
         path.write_bytes(b"\x89PNG\r\n\x1a\nreference")
@@ -60,15 +61,15 @@ def test_web_video_passes_references_in_order(target, module, function, count, t
             assert options["image"] == references[0]
         else:
             assert options["references"] == references
-        return {"ok": True, "path": "video.mp4"}
+        return {"ok": True, "path": "result"}
 
     monkeypatch.setattr(module, function, generate)
     flags = [arg for path in references for arg in ("--reference", str(path))]
     if target == "grok":
         flags[0] = "--image"
-    assert cli.main(["web", "video", target, "--prompt", "Animate the boat", "--out", str(tmp_path),
+    assert cli.main(["web", kind, target, "--prompt", "A quiet lake", "--out", str(tmp_path),
                      "--json", *flags]) == 0
-    assert json.loads(capsys.readouterr().out)["files"] == ["video.mp4"]
+    assert json.loads(capsys.readouterr().out)["files"] == ["result"]
 
 
 def test_flow_image_passes_settings_and_reports_all_downloads(tmp_path, monkeypatch, capsys):

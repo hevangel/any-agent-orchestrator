@@ -22,7 +22,9 @@ from orchestrator import (
 from orchestrator.config import catalog
 from orchestrator.drivers import permission_args
 from orchestrator.machines import _run
-from orchestrator.media_references import IMAGE_FILES, VIDEO_REFERENCE_LIMITS, validate_image_reference
+from orchestrator.media_references import (
+    AUDIO_IMAGE_REFERENCE_LIMITS, IMAGE_FILES, VIDEO_REFERENCE_LIMITS, validate_image_reference,
+)
 from orchestrator.state import STATE_DIR, read_json, write_json
 
 PORT = 8771
@@ -78,6 +80,8 @@ def providers():
     for row in rows:
         if row["kind"] == "video":
             row["image_reference_limit"] = VIDEO_REFERENCE_LIMITS[row["id"]]
+        elif row["kind"] == "audio" and row["id"] in AUDIO_IMAGE_REFERENCE_LIMITS:
+            row["image_reference_limit"] = AUDIO_IMAGE_REFERENCE_LIMITS[row["id"]]
     return rows
 
 
@@ -158,7 +162,8 @@ def generate(request, directory):
     if request.kind == "audio":
         driver = {"flow-music": web_flow_music.generate, "muse": web_muse.generate_audio,
                   "grok": web_grok.generate_audio}[request.provider]
-        return generated_paths(driver(request.prompt, directory))
+        options = {"references": save_references(request.references, directory)} if request.references else {}
+        return generated_paths(driver(request.prompt, directory, **options))
 
     options = {}
     if request.aspect_ratio:
@@ -325,14 +330,14 @@ def create_app(root=None, *, craft_token=None):
                          if row["id"] == request.provider and row["kind"] == request.kind), None)
         if provider is None or not provider["available"]:
             raise HTTPException(422, "This AAO provider is unavailable for the requested media")
-        if request.kind == "audio" and (request.aspect_ratio or request.references):
-            raise HTTPException(422, "AAO audio generation accepts a text prompt in ArtCraft")
-        if request.kind == "video":
+        if request.kind != "image":
             if request.aspect_ratio:
                 raise HTTPException(422, "Aspect ratio on this endpoint applies to image jobs")
-            limit = provider["image_reference_limit"]
+            limit = provider.get("image_reference_limit", 0)
             if len(request.references) > limit:
-                raise HTTPException(422, f'This provider accepts up to {limit} image reference(s) for video')
+                detail = (f"This provider accepts up to {limit} image reference(s) for {request.kind}" if limit
+                          else "This audio provider accepts a text prompt only")
+                raise HTTPException(422, detail)
         job_id = uuid4()
         with lock:
             if sum(job["state"] == "pending" for job in jobs.values()) >= 8:

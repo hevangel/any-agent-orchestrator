@@ -30,7 +30,7 @@ One page, six tabs, refreshed in the background:
 
 Nothing leaves your computer: the dashboard reads the agents' own log files and asks each provider for its own quota. Remote machines are read over SSH and need only Python; nothing is installed on them.
 
-Quota numbers are read from each installed agent's own `/usage` or `/status` screen through herdr (Claude, Codex, Cursor, Kiro, Antigravity). Optionally `cargo install quota-cli` adds Copilot, Grok and Kimi. Codex quotas also come from its own logs.
+Quota numbers are read from each installed agent's own `/usage` or `/status` screen through herdr (Claude, Codex, Cursor, Kiro, Antigravity); GitHub Copilot's monthly quotas are read from GitHub with your `gh` login. Optionally `cargo install quota-cli` adds Grok and Kimi. Codex quotas also come from its own logs. Every window shows when it resets.
 
 ## Where agents run
 
