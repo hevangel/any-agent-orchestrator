@@ -75,6 +75,10 @@ uv run pytest -m e2e -k "herdr-remote-brunhild-codex"   # one e2e case
 uv run aao accounts [--agent claude --host local]   # list/validate .env accounts, show which is used next
 uv run aao web login <site>|--all         # log in once by hand; the playwright-cli profile is saved
 uv run aao web status --all               # which saved web logins still work
+uv run aao web image chatgpt|flow|gemini|grok|muse --prompt "..." [--out DIR]
+uv run aao web video flow|gemini|grok|muse --prompt "..." [--reference FILE] [--out DIR]
+uv run aao web audio flow-music|grok|muse --prompt "..." [--out DIR]
+uv run --extra grok-api aao media-serve   # ArtCraft and opt-in Craft AI bridge
 uv run aao web ask claude --chat "<title|id>" --prompt "..."   # continue an existing chat
 uv run aao chats claude|claude-code-web list|sections|search <q>|pin|unpin|move <chat> <section> [--create]|unsection|new-section|delete-section   # chats / Code sessions (web_chats.py)
 uv run aao web ask gemini --mode chat|task [--file F ...] [--repo <GitHub URL>] --prompt "..."   # attach files (zip a folder) or a GitHub repo

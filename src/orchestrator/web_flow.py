@@ -8,7 +8,8 @@
     uv run aao flow upload <project> <file>...            # add reference images/videos to the project (free)
     uv run aao flow new-character <project> --name NAME (--face-prompt TEXT | --face-image FILE)
     uv run aao flow edit-character <project> <character> [character options]
-    uv run aao flow read-character <project> <character>
+    uv run aao flow characters|read-character <project> [<character>]
+    uv run aao flow add-to-scene|save-frame|extend ...
     uv run aao flow delete <project> --yes                # permanent: clips, ingredients and prompts go
 
 <project> is a project id (uuid), its URL or its exact title. <media> is the 1-based index shown by
@@ -27,7 +28,7 @@ from orchestrator import web
 
 TARGET = "flow"
 
-# flow.google.com, studied 2026-11-13. Angular app; custom elements flow-grid-tile-container >
+# flow.google.com, Angular app; custom elements flow-grid-tile-container >
 # flow-<type>-tile hold the media. The page of a project has no media ids in the DOM, so a media is
 # addressed by its index (newest first) or its name.
 RECIPE = {
@@ -36,42 +37,14 @@ RECIPE = {
     "projectPath": r"^/project/([0-9a-f][0-9a-f_-]+)",
     "projectLink": "a[href^='/project/']",
     "tile": "flow-grid-tile-container",
-    "tileTitle": "button",              # the button whose text is the media's name (videos)
-    "tileKinds": {"flow-video-tile": "video", "flow-image-tile": "image"},
-    "tileHotbarButtons": ["Favourite", "Reuse prompt", "More options"],
+    "tileKinds": {"flow-video-tile": "video", "flow-image-tile": "image",
+                  "flow-character-tile": "character", "flow-scene-tile": "scene",
+                  "flow-collection-tile": "collection"},
     "dismiss": [{"text": "uses cookies", "button": "No thanks"}],  # cookie banner covers the composer
     "addMenu": "Add media menu",        # top bar "+": Upload | New collection | Create character | New scene
-    "settingsButton": "Settings",       # the last visible one is the agent's; the first is the page's
     "toggle": "button[role=radio]",     # aspect ratio and count groups: aria-checked
     "toggleGroup": "mat-button-toggle-group",
-    "menuItem": "[role=menuitem]",
     "confirmDialog": "mat-dialog-container, [role=dialog]",
-}
-
-# Choices of the agent settings, read from the live page on 2026-11-13 (`aao flow options` reads them again).
-OPTIONS = {
-    "confirm_before_generating": {
-        "Always": "the agent asks before generating media (default)",
-        "Never": "the agent generates and spends credits at once",
-    },
-    "image": {
-        "aspect_ratio": ["16:9", "4:3", "1:1", "3:4", "9:16"],
-        "count": ["x1", "x2", "x3", "x4"],
-        "model": ["Nano Banana Pro", "Nano Banana 2 Lite", "Nano Banana 2.1"],
-    },
-    "video": {
-        "aspect_ratio": ["16:9", "9:16"],
-        "count": ["x1", "x2", "x3", "x4"],
-        "model": ["Omni 1.2 Flash", "Omni 1.1 Flash", "Veo 3.1 - Lite", "Veo 3.1 - Fast", "Veo 3.1 - Quality"],
-    },
-    "filters": {
-        "type": ["Images", "Videos", "Collections", "Scenes", "Characters"],
-        "aspect_ratio": ["Landscape", "Portrait", "Freeform"],
-        "created": ["Generated", "Uploaded", "Favourites"],
-        "duration_s": "3s .. 15s",
-        "resolution": ["720p", "360p"],
-        "sort": ["Newest", "Oldest"],
-    },
 }
 
 # Download submenu of a media's "More options": label -> (cost note, free)
@@ -102,7 +75,7 @@ SCRIPT = r"""async page => {
     await start.click({ timeout: 3000 });
   };
   const goto = async (url, ready) => {
-    if (page.url().split(/[?#]/)[0] !== url) await page.goto(url, { waitUntil: 'domcontentloaded' });
+    await page.goto(url, { waitUntil: 'domcontentloaded' });
     if (new RegExp(cfg.loginUrl, 'i').test(page.url())) throw Object.assign(new Error('login page'), { login: true });
     await page.locator(ready).first().waitFor({ state: 'visible', timeout: 30000 });
     await wait(1500); await dismiss();
@@ -143,7 +116,6 @@ SCRIPT = r"""async page => {
   };
   const uuid = '[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}';
   const editorPath = new RegExp('/character/(' + uuid + ')/?$', 'i');
-  const button = name => page.getByRole('button', { name, exact: typeof name === 'string' });
   const visible = locator => locator.filter({ visible: true });
   const slot = name => button(name).or(page.getByRole('tab', { name }));
   const characterName = () => page.getByRole('textbox', { name: 'Character name', exact: true });
@@ -291,8 +263,9 @@ SCRIPT = r"""async page => {
     const kindEl = [...t.querySelectorAll('*')].find(e => kinds[e.tagName.toLowerCase()]);
     const img = t.querySelector('img');
     const name = [...t.querySelectorAll('button')].map(b => (b.getAttribute('aria-label') || b.innerText || '').trim())
-      .filter(s => s && !['Favourite', 'Reuse prompt', 'More options', 'Expand'].includes(s))[0] || (img && img.alt) || '';
-    return { index: i + 1, type: kindEl ? kinds[kindEl.tagName.toLowerCase()] : null, name, thumbnail: img ? img.src : null, selected: false };
+      .filter(s => s && !['Favourite', 'Reuse prompt', 'More options', 'Expand'].includes(s))[0]
+      || t.querySelector('.character-tile-name, flow-scene-tile .title')?.textContent.trim() || (img && img.alt) || '';
+    return { index: i + 1, type: kindEl ? kinds[kindEl.tagName.toLowerCase()] : null, name, thumbnail: img?.currentSrc || img?.src || null, selected: false };
   }), { sel: r.tile, kinds: r.tileKinds });
   const projectInfo = async () => {
     // the title is an always-present textbox, an h1 only while it is not being edited
@@ -319,10 +292,23 @@ SCRIPT = r"""async page => {
     if (hit.length !== 1) throw Object.assign(new Error(hit.length ? 'several media are named "' + ref + '"; use the index' : 'no media "' + ref + '"'), { choices: all.map(t => t.index + '  ' + t.type + '  ' + t.name) });
     return page.locator(r.tile).nth(hit[0].index - 1);
   };
-  const downloadTile = async (tile, quality, timeout) => {
+  const closeMenu = () => page.keyboard.press('Escape').catch(() => {});
+  const tileMenu = async tile => {
     await tile.hover();
     await tile.getByRole('button', { name: 'More options', exact: true }).click();
+  };
+  const downloadTile = async (tile, quality, timeout, prefix = '') => {
+    try {
+      return await saveTile(tile, quality, timeout, prefix);
+    } finally {
+      await closeMenu();
+      if (await page.getByRole('menu').filter({ visible: true }).first().isVisible()) await closeMenu();
+    }
+  };
+  const saveTile = async (tile, quality, timeout, prefix) => {
+    await tileMenu(tile);
     const download = page.getByRole('menuitem', { name: 'Download', exact: true });
+    await download.waitFor({ timeout: 4000 }).catch(() => { throw new Error('Flow does not offer a download for this media'); });
     const choice = page.getByRole('menuitem', { name: new RegExp(quality.menu, 'i') }).first();
     const saved = page.waitForEvent('download', { timeout });
     const select = async () => {
@@ -337,12 +323,98 @@ SCRIPT = r"""async page => {
       else if (!quality.direct) throw new Error('No ' + quality.label + ' download for this media');
     };
     const [file] = await Promise.all([saved, select()]);
-    const path = cfg.to.replace(/\/$/, '') + '/' + file.suggestedFilename();
+    return saveFile(file, quality.label, prefix);
+  };
+  const saveFile = async (file, quality, prefix = '') => {
+    const path = cfg.to.replace(/\/$/, '') + '/' + prefix + file.suggestedFilename();
     await file.saveAs(path);
-    return { path, file: file.suggestedFilename(), quality: quality.label };
+    return { path, file: file.suggestedFilename(), quality };
   };
   const toggles = () => page.evaluate(({ sel, group }) => [...document.querySelectorAll(group)].map(g => (
-    [...g.querySelectorAll(sel)].map(b => ({ label: b.innerText.trim().split('\n').pop(), selected: b.getAttribute('aria-checked') === 'true' })))), { sel: r.toggle, group: r.toggleGroup });
+    [...g.querySelectorAll(sel)].map(b => {
+      const copy = b.cloneNode(true);
+      for (const icon of copy.querySelectorAll('mat-icon')) icon.remove();
+      return { label: copy.textContent.trim(), selected: b.getAttribute('aria-checked') === 'true' };
+    }))), { sel: r.toggle, group: r.toggleGroup });
+  const button = name => page.getByRole('button', { name, exact: typeof name === 'string' });
+  const settings = button('Settings trigger');
+  const modelFamily = button('Select model family');
+  const escaped = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const radio = label => page.getByRole('radio', { name: new RegExp('^' + escaped(label) + '(?:$|\\s)', 'i') });
+  const selectRadio = async label => {
+    await radio(label).click({ timeout: 5000 }).catch(() => { throw new Error('Flow does not offer this setting: ' + label); });
+    await radio(label).and(page.locator('[aria-checked=true]')).waitFor({ timeout: 5000 });
+  };
+  const directSettings = async action => {
+    const agent = button(/^Flow agent$/i);
+    const wasAgent = await agent.getAttribute('aria-pressed', { timeout: 5000 }) === 'true';
+    if (wasAgent) await agent.click();
+    try {
+      await settings.click({ timeout: 10000 });
+      return await action();
+    } finally {
+      await closeMenu();
+      if (await modelFamily.isVisible()) await settings.click({ timeout: 3000 }).catch(() => {});
+      if (cfg.op === 'options' && wasAgent) await agent.click({ timeout: 3000 });
+    }
+  };
+  const modelChoices = () => page.getByRole('menuitem').or(page.getByRole('option')).filter({ visible: true });
+  const showCharacters = async project => {
+    await openProject(project);
+    await page.getByRole('navigation', { name: 'Project navigation' }).getByRole('button', { name: 'Characters', exact: true }).click();
+    await page.locator('flow-character-tile').first().waitFor({ timeout: 4000 }).catch(() => {});
+  };
+  const characterTile = name => page.locator(r.tile).filter({
+    has: page.locator('.character-tile-name').and(page.getByText(name, { exact: true })),
+  });
+  const attachFrame = async (slot, ref) => {
+    const tile = (await tiles()).find(media => media.index === Number(ref));
+    const name = /^\d+$/.test(ref) ? tile?.name : ref;
+    if (!name || (tile && tile.type !== 'image' && /^\d+$/.test(ref))) throw new Error('No Flow image for the ' + slot + ' frame: ' + ref);
+    await button(slot).click();
+    const assets = page.getByRole('listbox', { name: 'Asset list', exact: true });
+    const option = assets.getByRole('option', { name, exact: true });
+    try {
+      await assets.waitFor({ timeout: 5000 });
+      if (!await option.count()) await page.getByRole('textbox', { name: 'Search assets', exact: true }).fill(name);
+      await option.waitFor({ timeout: 5000 });
+      if (await option.getAttribute('aria-selected') !== 'true') await option.click({ timeout: 5000 });
+      const add = button('Add to prompt');
+      if (await button(slot).isVisible() && await add.isVisible()) await add.click({ timeout: 5000 });
+      await button(slot).waitFor({ state: 'hidden', timeout: 5000 });
+      await assets.waitFor({ state: 'hidden', timeout: 5000 });
+    } catch (error) {
+      throw new Error('Could not attach Flow ' + slot.toLowerCase() + ' frame "' + name + '": ' + String(error.message).split('\n')[0]);
+    }
+  };
+  const openTimeline = async (project, media) => {
+    await openProject(project);
+    await page.locator(r.tile).first().waitFor({ timeout: 15000 });
+    const tile = await pickTile(media);
+    const video = tile.locator('flow-video-tile .container');
+    const scene = tile.locator('flow-scene-tile .tile-container');
+    if (await video.count()) await video.click({ position: { x: 30, y: 30 } });
+    else if (await scene.count()) await scene.click({ position: { x: 30, y: 30 } });
+    else throw new Error('Choose a Flow video or scene');
+    await button('Done editing scene').waitFor({ timeout: 15000 });
+  };
+  const newTiles = async (before, match, count, timeout) => {
+    const deadline = Date.now() + timeout;
+    let found;
+    do {
+      const remaining = [...before];
+      found = (await tiles()).filter(tile => {
+        if (!tile.thumbnail || !match(tile)) return false;
+        const index = remaining.findIndex(old => old.name === tile.name && old.thumbnail === tile.thumbnail);
+        if (index === -1) return true;
+        remaining.splice(index, 1);
+        return false;
+      });
+      if (found.length >= count) return found.slice(0, count);
+      await wait(400);
+    } while (Date.now() < deadline);
+    throw new Error('Timed out waiting for Flow media: ' + found.length + ' of ' + count + ' appeared');
+  };
   try {
     switch (cfg.op) {
       case 'status': {
@@ -353,6 +425,10 @@ SCRIPT = r"""async page => {
       case 'new': {
         await createProject(cfg.title);
         return out({ ok: true, ...(await projectInfo()) });
+      }
+      case 'characters': {
+        await showCharacters(await resolveProject(cfg.project));
+        return out({ ok: true, characters: (await tiles()).filter(tile => tile.type === 'character') });
       }
       case 'character-read': {
         await openCharacter();
@@ -415,59 +491,89 @@ SCRIPT = r"""async page => {
         return out({ ok: true, character });
       }
       case 'generate-prepare': {
-        await createProject(cfg.title);
+        if (cfg.project) await openProject(await resolveProject(cfg.project));
+        else await createProject(cfg.title);
         const composer = page.getByRole('textbox', { name: 'What do you want to create?', exact: true });
-        await composer.waitFor({ timeout: 30000 });
-        const agent = page.getByRole('button', { name: 'Flow Agent', exact: true });
-        if (await agent.getAttribute('aria-pressed') === 'true') await agent.click();
-        if (await agent.getAttribute('aria-pressed') !== 'false') return fail('Flow is not in direct generation mode');
-        const settings = page.getByRole('button', { name: 'Settings trigger', exact: true });
-        await settings.click();
-        const mode = { name: cfg.kind === 'image' ? 'Image' : 'Video', exact: true };
-        const one = { name: 'x1', exact: true };
-        await page.getByRole('radio', mode).click();
-        await page.getByRole('radio', { ...mode, checked: true }).waitFor({ timeout: 10000 });
-        if (cfg.kind === 'video' && cfg.references) {
-          const ingredients = { name: 'Ingredients', exact: true };
-          await page.getByRole('radio', ingredients).click();
-          await page.getByRole('radio', { ...ingredients, checked: true }).waitFor({ timeout: 10000 });
+        await directSettings(async () => {
+          await selectRadio(cfg.kind === 'image' ? 'Image' : 'Video');
+          if (cfg.startFrame || cfg.endFrame) await selectRadio('Frames');
+          else if (cfg.kind === 'video' && (cfg.references || cfg.characters.length)) await selectRadio('Ingredients');
+          if (cfg.model) {
+            await modelFamily.click();
+            const model = modelChoices().filter({
+              hasText: new RegExp('^(?:🍌\\s*)?' + escaped(cfg.model) + '(?:\\s*Leaving\\b.*)?$', 'i'),
+            });
+            await model.click({ timeout: 5000 }).catch(() => { throw new Error('Flow does not offer model: ' + cfg.model); });
+          }
+          await selectRadio('x' + cfg.count);
+          if (cfg.aspectRatio) await selectRadio(cfg.aspectRatio);
+          if (cfg.qualitySetting) await selectRadio(cfg.qualitySetting);
+          if (cfg.duration && await radio(cfg.duration + 's').count()) await selectRadio(cfg.duration + 's');
+        });
+        if (cfg.duration && !new RegExp('(?:^|\\s)' + cfg.duration + 's\\b').test(await settings.innerText())) {
+          throw new Error('Flow does not offer the requested duration for these settings: ' + cfg.duration + 's');
         }
-        await page.getByRole('radio', one).click();
-        await page.getByRole('radio', { ...one, checked: true }).waitFor({ timeout: 10000 });
-        if (cfg.aspectRatio) {
-          const ratio = { name: cfg.aspectRatio, exact: true };
-          await page.getByRole('radio', ratio).click();
-          await page.getByRole('radio', { ...ratio, checked: true }).waitFor({ timeout: 10000 });
-        }
-        await settings.click();
         await composer.fill(cfg.prompt);
+        if (cfg.startFrame) await attachFrame('Start', cfg.startFrame);
+        if (cfg.endFrame) await attachFrame('End', cfg.endFrame);
+        if (cfg.characters.length) {
+          await page.getByRole('navigation', { name: 'Project navigation' }).getByRole('button', { name: 'Characters', exact: true }).click();
+          const attached = button('Ingredient');
+          for (const name of cfg.characters) {
+            const tile = characterTile(name);
+            await tile.waitFor({ timeout: 5000 });
+            const previous = await attached.count();
+            await tileMenu(tile);
+            await page.getByRole('menuitem', { name: 'Add to prompt', exact: true }).click({ timeout: 5000 });
+            await attached.nth(previous).waitFor({ timeout: 10000 });
+          }
+          await page.getByRole('navigation', { name: 'Project navigation' }).getByRole('button', { name: 'All media', exact: true }).click();
+        }
         return out({ ok: true, url: page.url() });
       }
-      case 'generate-reference-open': {
-        const images = page.locator(r.tile).filter({ has: page.locator('flow-image-tile img') });
-        const before = await images.count();
-        await page.getByRole('button', { name: r.addMenu, exact: true }).click();
-        await page.getByRole('menuitem', { name: 'Upload', exact: true }).click();
+      case 'generate-reference-open':
+      case 'upload-open': {
+        if (cfg.op === 'upload-open') await openProject(await resolveProject(cfg.project));
+        await page.locator(r.tile).first().waitFor({ timeout: 6000 }).catch(() => {});
+        const before = await tiles();
+        await button(r.addMenu).click();
+        await page.getByRole('menuitem', { name: 'Upload', exact: true }).click({ noWaitAfter: true, timeout: 5000 });
         return out({ ok: true, before });
       }
+      case 'upload-wait':
       case 'generate-reference-add': {
-        const images = page.locator(r.tile).filter({ has: page.locator('flow-image-tile img') });
-        await images.nth(cfg.before).waitFor({ timeout: 30000 });
-        const ingredient = images.first();
-        const attached = page.getByRole('button', { name: 'Ingredient', exact: true });
+        const expected = cfg.filename.toLowerCase();
+        const stem = expected.replace(/\.[^.]+$/, '');
+        const [uploaded] = await newTiles(cfg.before, tile => {
+          const name = tile.name.toLowerCase();
+          return ['image', 'video'].includes(tile.type) && (name === expected || name === stem);
+        }, 1, cfg.timeoutMs);
+        if (cfg.op === 'upload-wait') return out({ ok: true, uploaded: 1, media: await tiles() });
+        const attached = button('Ingredient');
         const previous = await attached.count();
-        await ingredient.hover();
-        await ingredient.getByRole('button', { name: 'More options', exact: true }).click();
-        await page.getByRole('menuitem', { name: 'Add to prompt', exact: true }).click();
-        if (cfg.kind === 'video') await attached.nth(previous).waitFor({ timeout: 10000 });
+        try {
+          await tileMenu(page.locator(r.tile).nth(uploaded.index - 1));
+          await page.getByRole('menuitem', { name: 'Add to prompt', exact: true }).click({ timeout: 5000 });
+          if (cfg.kind === 'video') await attached.nth(previous).waitFor({ timeout: 10000 });
+        } finally {
+          await closeMenu();
+        }
         return out({ ok: true });
       }
       case 'generate': {
-        const outputTiles = page.locator(r.tile).filter({ has: page.locator('flow-' + cfg.kind + '-tile img') });
-        const before = await outputTiles.count();
-        await page.getByRole('button', { name: 'Start generation', exact: true }).click();
-        await outputTiles.nth(before).waitFor({ timeout: cfg.timeoutMs });
-        return out({ ok: true, ...(await downloadTile(outputTiles.first(), cfg.quality, 30000)), url: page.url() });
+        const before = await tiles();
+        await button('Start generation').click();
+        const generated = await newTiles(before, tile => tile.type === cfg.kind, cfg.count, cfg.timeoutMs);
+        const saved = [];
+        try {
+          for (const [index, media] of generated.entries()) {
+            const tile = page.locator(r.tile).nth(media.index - 1);
+            saved.push(await downloadTile(tile, cfg.quality, 30000, cfg.count === 1 ? '' : (index + 1) + '-'));
+          }
+        } catch (error) {
+          return fail(String(error.message).split('\n')[0], { files: saved.map(file => file.path), url: page.url() });
+        }
+        return out({ ok: true, ...saved[0], files: saved.map(file => file.path), url: page.url() });
       }
       case 'read': {
         await openProject(await resolveProject(cfg.project));
@@ -480,70 +586,91 @@ SCRIPT = r"""async page => {
         await openProject(await resolveProject(cfg.project));
         await page.locator(r.tile).first().waitFor({ timeout: 15000 });
         const tile = await pickTile(cfg.media);
+        if (await tile.locator('flow-character-tile').count()) {
+          return fail('Flow does not offer tile downloads for characters. Open the character editor for its portrait.');
+        }
+        if (await tile.locator('flow-scene-tile').count() && cfg.qualityKey !== 'original') {
+          return fail('Flow offers only original-size downloads for scenes');
+        }
         if (cfg.qualityKey === 'gif' && await tile.locator('flow-image-tile').count()) {
           return fail('Flow offers GIF downloads for videos only');
         }
         return out({ ok: true, ...(await downloadTile(tile, cfg.quality, cfg.timeoutMs)) });
       }
+      case 'add-to-scene': {
+        await openProject(await resolveProject(cfg.project));
+        await page.locator(r.tile).first().waitFor({ timeout: 15000 });
+        const tile = await pickTile(cfg.media);
+        if (!await tile.locator('flow-video-tile').count()) return fail('Choose a Flow video to add to the scene');
+        try {
+          await tileMenu(tile);
+          await page.getByRole('menuitem', { name: 'Add to scene', exact: true }).hover({ timeout: 5000 });
+          await page.getByRole('menuitem', { name: cfg.scene, exact: true }).click({ timeout: 5000 });
+          await page.getByText('Added to scene', { exact: true }).waitFor({ timeout: 10000 });
+          return out({ ok: true, scene: cfg.scene, url: page.url() });
+        } finally {
+          await closeMenu();
+          if (await page.getByRole('menu').filter({ visible: true }).first().isVisible()) await closeMenu();
+        }
+      }
+      case 'save-frame':
+      case 'extend': {
+        await openTimeline(await resolveProject(cfg.project), cfg.media);
+        const clips = page.locator('flow-scene-timeline .timeline-contents .clip');
+        if (cfg.op === 'save-frame') {
+          const clip = clips.nth(cfg.clip - 1);
+          await clip.scrollIntoViewIfNeeded({ timeout: 5000 });
+          const bounds = await clip.boundingBox();
+          const track = await page.locator('flow-scene-timeline .timeline-background').boundingBox();
+          const offset = Math.max(1, Math.min(bounds.width - 1, bounds.width * cfg.at / 100));
+          await page.mouse.click(bounds.x + offset, track.y + 4);
+          const save = button('Save frame');
+          await save.click({ timeout: 5000 });
+          await page.getByText('Frame saved', { exact: true }).waitFor({ timeout: 10000 });
+          return out({ ok: true, url: page.url(), clip: cfg.clip, at: cfg.at });
+        }
+        const duration = page.locator('.duration-timecode-value');
+        const before = (await duration.innerText({ timeout: 10000 })).trim();
+        await page.getByRole('button', { name: 'Add clip', exact: true }).click({ timeout: 5000 });
+        await page.getByRole('menuitem', { name: 'Extend', exact: true }).click({ timeout: 5000 });
+        await page.getByRole('textbox', { name: 'What happens next?', exact: true }).fill(cfg.prompt);
+        await button('Start generation').click({ timeout: 5000 });
+        // Flow extends the last clip in place. The clip count can stay the same.
+        await page.waitForFunction(before => {
+          const timecode = document.querySelector('.duration-timecode-value')?.textContent.trim();
+          const finished = document.querySelector('flow-scene-timeline .clip.is-last button[aria-label="Redo extend"]');
+          return Boolean(timecode && timecode > before && finished);
+        }, before, { timeout: cfg.timeoutMs });
+        const timecode = (await duration.innerText()).trim();
+        const url = page.url();
+        await button('Done editing scene').click({ timeout: 10000 });
+        return out({ ok: true, url, duration: timecode });
+      }
       case 'options': {
         await openProject(await resolveProject(cfg.project));
-        const direct = page.getByRole('button', { name: 'Settings trigger', exact: true });
-        if (await direct.isVisible()) {
-          await direct.click();
+        return await directSettings(async () => {
+          const original = await radio('Image').getAttribute('aria-checked') === 'true' ? 'Image' : 'Video';
+          const modes = {};
           try {
-            const family = page.getByRole('button', { name: 'Select model family', exact: true });
-            await family.waitFor({ timeout: 5000 });
-            const groups = await toggles();
-            const current = (await family.innerText()).trim().split('\n')[0];
-            await family.click();
-            const items = page.getByRole('menuitem').or(page.getByRole('option')).filter({ visible: true });
-            await items.first().waitFor({ timeout: 3000 }).catch(() => {});
-            const choices = (await items.allTextContents()).map(label => label.trim()).filter(Boolean);
-            return out({ ok: true, mode: 'direct', toggles: groups, dropdowns: [{ current, choices }] });
-          } finally {
-            await page.keyboard.press('Escape');
-            if (await page.getByRole('button', { name: 'Select model family', exact: true }).isVisible()) {
-              await direct.click();
+            for (const mode of ['Image', 'Video']) {
+              await selectRadio(mode);
+              const groups = await toggles();
+              const current = (await modelFamily.innerText()).trim().split('\n')[0];
+              await modelFamily.click();
+              try {
+                const items = modelChoices();
+                await items.first().waitFor({ timeout: 5000 });
+                const choices = (await items.allInnerTexts()).map(label => label.trim().replace(/\s+/g, ' '));
+                modes[mode.toLowerCase()] = { toggles: groups, dropdowns: [{ current, choices }] };
+              } finally {
+                await closeMenu();
+              }
             }
+            return out({ ok: true, mode: 'direct', ...modes[original.toLowerCase()], modes });
+          } finally {
+            if (await modelFamily.isVisible()) await selectRadio(original);
           }
-        }
-        await page.locator(r.tile).first().waitFor({ timeout: 8000 }).catch(() => {});
-        const s = page.getByRole('button', { name: r.settingsButton, exact: true }).filter({ visible: true });
-        await s.last().click(); await wait(1200);
-        const radios = await page.evaluate(() => [...document.querySelectorAll('mat-radio-button, [role=radio]:not(.mat-button-toggle-button)')]
-          .map(e => ({ label: (e.innerText || '').trim().split('\n')[0], detail: (e.innerText || '').trim().split('\n').slice(1).join(' '), selected: (e.querySelector('input') || e).checked === true || e.classList.contains('mdc-radio--selected') || e.getAttribute('aria-checked') === 'true' })));
-        const groups = await toggles();
-        const find = () => page.evaluate(() => [...document.querySelectorAll('span')]
-          .filter(e => e.children.length === 0 && !e.closest('[role=menu]') && /(Nano Banana|Omni|Veo)/.test(e.textContent) && e.getBoundingClientRect().width > 0)
-          .map(e => { const b = e.getBoundingClientRect(); return { text: e.textContent.trim(), x: b.x + b.width / 2, y: b.y + b.height / 2 }; }));
-        const dropdowns = [];
-        for (const t of await find()) {                   // each trigger: current model, then the menu's choices
-          await page.mouse.click(t.x, t.y); await wait(900);
-          const items = await page.locator(r.menuItem).evaluateAll(es => es.map(e => e.innerText.trim().replace(/\n+/g, ' / ')));
-          dropdowns.push({ current: t.text, choices: items.filter(x => /(Nano Banana|Omni|Veo)/.test(x)) });
-          // re-pick the current model: it closes the menu and changes nothing
-          await page.getByRole('menuitem', { name: t.text.replace(/^\S+\s(?=Nano)/, '') }).first().click().catch(() => {}); await wait(600);
-        }
-        const close = page.getByRole('button', { name: 'Close', exact: true }).filter({ visible: true });
-        await close.last().click().catch(() => {}); // never Save: nothing is changed
-        return out({ ok: true, confirm: radios, toggles: groups, dropdowns });
-      }
-      case 'upload-open': {   // leaves the OS file chooser pending: playwright-cli takes it as a modal, `playwright-cli upload` fills it
-        await openProject(await resolveProject(cfg.project));
-        await page.locator(r.tile).first().waitFor({ timeout: 6000 }).catch(() => {});
-        const before = (await tiles()).length;
-        await page.getByRole('button', { name: r.addMenu }).first().click(); await wait(600);
-        await page.getByRole('menuitem', { name: /Upload/ }).first().click({ noWaitAfter: true, timeout: 5000 });
-        return out({ ok: true, before });
-      }
-      case 'upload-wait': {
-        const want = cfg.before + cfg.count;
-        let n = 0;
-        for (let i = 0; i < cfg.timeoutMs / 1000; i++) { n = (await tiles()).length; if (n >= want) break; await wait(1000); }
-        await wait(1500);
-        const all = await tiles();
-        if (all.length < want) return fail('the upload did not finish: ' + (all.length - cfg.before) + ' of ' + cfg.count + ' media appeared', { media: all });
-        return out({ ok: true, uploaded: cfg.count, media: all });
+        });
       }
       case 'delete': {
         const id = await resolveProject(cfg.project);
@@ -560,6 +687,7 @@ SCRIPT = r"""async page => {
       default: return fail('unknown op ' + cfg.op);
     }
   } catch (e) {
+    await closeMenu();
     if (e && e.login) return JSON.stringify({ loggedIn: false, reason: 'login page' });
     return fail(String(e && e.message || e).split('\n')[0], { url: page.url(), ...(e?.choices ? { choices: e.choices } : {}) });
   }
@@ -674,17 +802,34 @@ def _change_character(project, character, *, name=None, face_prompt=None, face_i
         web.release(TARGET, settings=settings)
 
 
-def generate(kind, prompt, directory, timeout_s=720, *, aspect_ratio=None, references=()):
-    """Start one direct generation in a dedicated project and save its original output."""
+def generate(kind, prompt, directory, timeout_s=720, *, aspect_ratio=None, references=(),
+             project=None, model=None, resolution=None, quality=None, duration=None, count=1,
+             characters=(), start_frame=None, end_frame=None):
+    """Start direct generation and save the original output files."""
     if kind not in {"image", "video"}:
         raise ValueError("Flow media kind must be image or video")
+    if not 1 <= count <= 4:
+        raise ValueError("Flow output count must be between 1 and 4")
+    if kind == "image" and (resolution or duration is not None):
+        raise ValueError("Flow resolution and duration apply to video")
+    if kind == "video" and quality and resolution and quality.lower() != resolution.lower():
+        raise ValueError("Flow video --quality and --resolution must agree")
+    if duration is not None and duration <= 0:
+        raise ValueError("Flow duration must be positive")
+    if characters and not project:
+        raise ValueError("Flow characters require --project")
+    if start_frame or end_frame:
+        if kind != "video" or not project or references or characters:
+            raise ValueError("Flow frames require video and --project, with no ingredients")
     directory = Path(directory).resolve()
     ok, _, error = web.open_target(TARGET)
     if not ok:
         return {"target": TARGET, "ok": False, "error": error}
     try:
         result = run("generate-prepare", kind=kind, prompt=prompt, title=f"AAO {kind} {directory.name[-12:]}",
-                     aspectRatio=aspect_ratio, references=bool(references))
+                     project=project, aspectRatio=aspect_ratio, references=bool(references), model=model,
+                     qualitySetting=resolution or quality, duration=duration, count=count,
+                     characters=characters, startFrame=start_frame, endFrame=end_frame)
         if not result.get("ok"):
             return result
         for path in references:
@@ -694,10 +839,11 @@ def generate(kind, prompt, directory, timeout_s=720, *, aspect_ratio=None, refer
             uploaded, _, error = web._pw(TARGET, "upload", Path(path).resolve().as_posix(), timeout=120)
             if not uploaded:
                 return {"ok": False, "reason": error or "Could not upload the Flow reference image"}
-            result = run("generate-reference-add", timeout_s=60, before=result["before"], kind=kind)
+            result = run("generate-reference-add", timeout_s=60, before=result["before"], kind=kind,
+                         filename=Path(path).name)
             if not result.get("ok"):
                 return result
-        return {"target": TARGET, **run("generate", timeout_s=timeout_s, kind=kind, to=directory.as_posix(),
+        return {"target": TARGET, **run("generate", timeout_s=timeout_s, kind=kind, count=count, to=directory.as_posix(),
                                         quality=QUALITIES["original"])}
     finally:
         web.release(TARGET)
@@ -720,18 +866,18 @@ def upload(project, files, settings=None, timeout_s=180):
         return {"target": TARGET, "ok": False, "error": err}
     try:
         result = {"ok": True}
-        for path in paths:  # the chooser takes one file per `playwright-cli upload`
+        for completed, path in enumerate(paths):  # the chooser takes one file per `playwright-cli upload`
             opened = run("upload-open", timeout_s=60, project=project)
             if not opened.get("ok"):
-                return {"target": TARGET, **opened}
+                return {"target": TARGET, **opened, "uploaded": completed}
             ok, out, err = web._pw(TARGET, "upload", path, timeout=120)
             if not ok:
                 return {"target": TARGET, "ok": False, "loggedIn": True, "reason": "file chooser was not filled",
-                        "error": (err or out)[-300:]}
-            result = run("upload-wait", timeout_s=timeout_s, before=opened["before"], count=1)
+                        "error": (err or out)[-300:], "uploaded": completed}
+            result = run("upload-wait", timeout_s=timeout_s, before=opened["before"], filename=Path(path).name)
             if not result.get("ok"):
-                return {"target": TARGET, **result}
+                return {"target": TARGET, **result, "uploaded": completed}
         result["uploaded"] = len(paths)
         return {"target": TARGET, **result}
     finally:
-        web.release(TARGET)
+        web.release(TARGET, settings=settings)
