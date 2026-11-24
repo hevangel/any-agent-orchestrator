@@ -229,12 +229,15 @@ def collect_copilot_accounts(accounts, errors, env=None):
     return accounts
 
 
-WEB_READERS = {"muse": ("orchestrator.web_muse", "quota", "has_profile")}
+WEB_READERS = {"muse": ("orchestrator.web_muse", "quota", "has_profile"),
+               # Flow and Gemini share the Google login's browser, so they are read one after the other.
+               "flow": ("orchestrator.web_quota_google", "flow_quota", "has_profile"),
+               "gemini": ("orchestrator.web_quota_google", "gemini_quota", "has_profile")}
 
 
 def collect_web_accounts(accounts, errors):
     """Web subscriptions read from the site's own usage page in the saved browser profile
-    (AAO_QUOTA_WEB_TARGETS, default muse; `none` disables). Targets never logged in are skipped."""
+    (AAO_QUOTA_WEB_TARGETS, default muse,flow,gemini; `none` disables). Targets never logged in are skipped."""
     import importlib
 
     from orchestrator.config import Settings

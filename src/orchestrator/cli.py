@@ -179,7 +179,7 @@ def _web_media(args):
 
 
 def _web_quota(args):
-    """`aao web quota muse`: the signed-in account's usage, read from the site's own Settings panel."""
+    """`aao web quota muse|flow|gemini`: the signed-in account's usage, read from the site's own usage panel."""
     from orchestrator.quotas import WEB_READERS
 
     if args.target not in WEB_READERS or args.all:
@@ -958,7 +958,7 @@ def main(argv=None):
     p.add_argument("action", choices=["login", "status", "ask", "close", "image", "video", "audio", "sessions", "read",
                                       "quota"],
                    help="sessions/read: list AutoClaw tasks or read one; close: close kept-open browsers; "
-                        "quota: read the account's usage (muse)")
+                        "quota: read the account's usage (muse, flow, gemini)")
     p.add_argument("target", nargs="?", help="chatgpt, claude, gemini, grok, muse, flow, flow-music, zai, autoclaw, codex-cloud, claude-code-web")
     p.add_argument("--all", action="store_true")
     p.add_argument("--prompt")

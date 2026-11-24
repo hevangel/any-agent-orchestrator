@@ -95,7 +95,7 @@ uv run aao codex attention [<t>] [--json]|answer <t> --choice <option|button>|--
 uv run aao code sessions|read <s>|send <s> --prompt ..|new --prompt .. [--repo --env --permission]|wait <s> [--wait]   # Claude Code on the web (web_code.py)
 uv run aao code projects|project <name>|project-send <name> --prompt ..   # Projects (beta)
 uv run aao flow status|projects|new [--title]|read <p> [--type]|download <p> <media> [--to --quality]|upload <p> <file>..|options|delete <p> --yes   # Google Flow projects and media; upscales spend credits
-uv run aao web quota muse [--json]        # read-only: Muse weekly limit and top-up tokens (also on the Quotas tab)
+uv run aao web quota muse|flow|gemini [--json]   # read-only: Muse weekly limit and top-up tokens, Flow credits, Gemini usage limits (also on the Quotas tab)
 uv run aao web close [--all]              # browsers stay open between commands (AAO_WEB_KEEP_OPEN=0 to close each time)
 uv run aao projects list|validate|status <id>      # managed projects (projects/*.json)
 uv run aao projects sync <id> [--dry-run]           # rebuild the owned-repo tree from live .gitmodules

@@ -78,6 +78,7 @@ def test_has_profile_does_not_create_the_profile(tmp_path):
 
 
 def test_collector_adds_muse_and_skips_targets_never_logged_in(monkeypatch):
+    monkeypatch.setattr("orchestrator.web_quota_google.has_profile", lambda: False)  # Flow/Gemini: no browser
     live = web_muse.quota_account({"ok": True, "body": BODY})
     monkeypatch.setattr("orchestrator.config.Settings", lambda: Settings(env={}))
     monkeypatch.setattr(web_muse, "has_profile", lambda: True)
@@ -92,6 +93,7 @@ def test_collector_adds_muse_and_skips_targets_never_logged_in(monkeypatch):
 
 
 def test_collector_reports_failures_and_can_be_disabled(monkeypatch):
+    monkeypatch.setattr("orchestrator.web_quota_google.has_profile", lambda: False)  # Flow/Gemini: no browser
     monkeypatch.setattr(web_muse, "has_profile", lambda: True)
     monkeypatch.setattr(web_muse, "quota", lambda: web_muse.quota_account({"ok": False, "reason": "signed out"}))
     monkeypatch.setattr("orchestrator.config.Settings", lambda: Settings(env={}))
