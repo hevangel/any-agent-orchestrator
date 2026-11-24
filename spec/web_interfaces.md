@@ -19,12 +19,12 @@ The implemented targets and their command surfaces are listed below. Web UIs cha
 | --- | --- | --- |
 | Grok | `https://grok.com/` | Chat turns and projects; Imagine image/video generation, saved @references, Draw, and Agent canvases; Grok-only CDP attach. Bot support is not implemented. |
 | Muse | `https://muse.ai/` | Browser login/status, image and video generation, and the account's usage quota (`aao web quota muse`: weekly plan limit and top-up tokens from Settings → Usage, also shown on the dashboard's Quotas tab). General chat turn extraction is not implemented. |
-| Gemini | `https://gemini.google.com/app` | Chat and Task turns, local file and GitHub-repository attachments, chat list/notebooks, image/video generation. |
+| Gemini | `https://gemini.google.com/app` | Chat and Task turns, local file and GitHub-repository attachments, chat list/notebooks, image/video generation, and the usage quota (`aao web quota gemini`: current and weekly limits from `gemini.google.com/usage` plus the Google AI credits balance, also on the Quotas tab). |
 | Claude web | `https://claude.ai/new` | Chat turns and chat list/sections through Playwright. |
 | Claude Code on the web | `https://claude.ai/code` | Sessions and beta projects through `aao code`; shares the Claude browser profile. |
 | ChatGPT | `https://chatgpt.com/` | Chat turns, chat list/projects, image generation. |
 | Codex on the web | `https://chatgpt.com/` in Codex mode | Threads and question handling through `aao codex`; shares the ChatGPT browser profile. |
-| Google Flow | `https://flow.google.com/` | Project/media management and image/video generation; shares the Gemini browser profile. |
+| Google Flow | `https://flow.google.com/` | Project/media management and image/video generation; shares the Gemini browser profile. `aao web quota flow` reads the Google Flow credits left and their reset from the account menu (also on the Quotas tab). |
 | Google Flow Music | `https://www.flowmusic.app/` | Song generation and MP3 downloads for AAO and ArtCraft. Sign in once with `aao web login flow-music`. |
 | Z.ai | `https://chat.z.ai/` | Browser login/status only; a scripted chat turn is not implemented. |
 | AutoClaw (Zwork Remote Control) | `https://autoclaw-remote-web.z.ai/` | Pair a Zwork computer, list sessions, read transcripts, and send prompts to an existing session. |
