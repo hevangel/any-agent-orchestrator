@@ -1,7 +1,7 @@
 {
   "schema": "free-tokens-v1",
-  "updated_at": "2026-11-24T16:16:15Z",
-  "updated_by": "ChatGPT Daily AI Token & Media Deals",
+  "updated_at": "2026-11-25T15:07:27Z",
+  "updated_by": "ChatGPT",
   "notes": "Free token, credit and free-tier offers usable by the agents in agents.json. Maintained daily by an agent following prompts/daily_data_update.md; every entry needs a source URL and a verification date. Validate with: uv run aao free-tokens validate",
   "sources": [
     {
@@ -85,7 +85,7 @@
       "url": "https://openrouter.ai/baidu/ernie-5.5-flash-preview:free",
       "expires": null,
       "status": "active",
-      "verified_at": "2026-11-20",
+      "verified_at": "2026-11-25",
       "notes": "Tool calling and structured outputs, ~1M context; OpenRouter :free rate limits; provider-specific data retention should be checked."
     },
     {
@@ -106,7 +106,7 @@
       "url": "https://openrouter.ai/nvidia/nemotron-3-ultra-550b-a55b:free",
       "expires": null,
       "status": "active",
-      "verified_at": "2026-11-20",
+      "verified_at": "2026-11-25",
       "notes": "55B active / 550B total MoE, 1M context, coding/reasoning/orchestration. Free endpoint logs inputs and outputs for security and NVIDIA model improvement; do not upload confidential information or personal data. Standard OpenRouter free request caps."
     },
     {
@@ -185,7 +185,7 @@
       "url": "https://openrouter.ai/collections/free-models",
       "expires": null,
       "status": "active",
-      "verified_at": "2026-11-23",
+      "verified_at": "2026-11-25",
       "notes": "Model openrouter/free routes to an eligible zero-priced model, which may vary per call. OpenRouter :free variants require no credit purchase; default 50 requests/day and 20/min, 1,000/day after $10 purchased. No fixed token allowance. Verified OpenRouter free catalog: :free models are 20 requests/min and 50/day, rising to 1,000/day after a qualifying $10 credit purchase; failed requests count toward daily cap."
     },
     {
@@ -285,23 +285,6 @@
       "notes": "New accounts get 200 credits for API and Playground, worth $0.10 at provider's 2,000 credits/$1 conversion. No purchase advertised for signup; payment-card and actual eligibility untested. Upcoming Nov 24-30 DeepSeek V4.1 Flash 10M tokens/day requires at least one successful account top-up (any amount) according to HiAPI's official Nov 10 checklist; NOT a no-purchase grant. Top-up bonus 5-10% and media spend-back 5-20% are purchase-gated. Trial credits alone may be insufficient for video generation."
     },
     {
-      "id": "hiapi-seedance-2-5-flash-20off",
-      "provider": "HiAPI / ByteDance",
-      "offer": "Seedance 2.5 Flash launch discount (text/image/reference-to-video)",
-      "kind": "promo",
-      "amount": "20% off all Seedance 2.5 Flash API and Playground usage",
-      "agent_ids": [],
-      "access": [
-        "api",
-        "web"
-      ],
-      "url": "https://hiapi.ai/en/promotions/seedance-2-5-flash-launch-20261118-8-fold",
-      "expires": "2026-11-24",
-      "status": "active",
-      "verified_at": "2026-11-20",
-      "notes": "PAID inference discount, not free tokens. Automatically applies to all users, no promo code, cannot stack with other model promotions. Supports 480p/720p, 4-30 seconds, synchronized audio; text-to-video, image-to-video, reference-to-video with up to 10 images and 5 audio clips. Official exact event ends November 25 at 07:00 Beijing (November 24 at 15:00 Pacific). Account and funded balance likely required for paid usage; card requirement unverified."
-    },
-    {
       "id": "vercel-parallel-fast-web-search",
       "provider": "Vercel / Parallel",
       "offer": "Parallel fast web search free on AI Gateway and eve",
@@ -339,7 +322,7 @@
       "url": "https://openrouter.ai/particle-ai/particle-1:free",
       "expires": null,
       "status": "active",
-      "verified_at": "2026-11-20",
+      "verified_at": "2026-11-25",
       "notes": "Released Oct 28, 2026; newly identified, not a new launch this week. Agentic coding model post-trained on DeepSeek V4.1 Flash for token-efficient terminal and codebase workflows. 1,048,576 context, 131,072 max output, tool calls and JSON-schema structured output, image/text input. Free endpoint rate-limited by OpenRouter account quotas, no credit purchase required; provider privacy and retention terms unverified. Test token-efficiency vs Ling/Inkling on verifiable coding tasks."
     },
     {
@@ -360,7 +343,7 @@
       "url": "https://openrouter.ai/perplexity/pplx-decider-v1.3:free",
       "expires": null,
       "status": "active",
-      "verified_at": "2026-11-20",
+      "verified_at": "2026-11-25",
       "notes": "Released Nov 12; no purchase needed for :free endpoint. 262K context, text/image state, probabilistic choice/score/classification and extraction; NOT a text-generation chat model. OpenRouter free account request limits apply (typically 50/day and 20/min; account/provider variations possible). No published expiry; data retention terms unverified."
     },
     {
@@ -402,7 +385,7 @@
       "url": "https://openrouter.ai/nvidia/nemotron-3.5-super-vl:free",
       "expires": null,
       "status": "active",
-      "verified_at": "2026-11-20",
+      "verified_at": "2026-11-25",
       "notes": "Released Oct 15; newly cataloged, not a new launch. Text/image/video input, text output, 1M context, tool calling and JSON schema. Free endpoint logs requests for security and NVIDIA product improvement: DO NOT send confidential information or personal data, including faces/voices. OpenRouter free-model request caps; no announced expiry."
     },
     {
@@ -484,7 +467,7 @@
       "url": "https://openrouter.ai/nvidia/nemotron-3.5-lightning:free",
       "expires": null,
       "status": "active",
-      "verified_at": "2026-11-22",
+      "verified_at": "2026-11-25",
       "notes": "30B total/3B active MoE, 1M context, tool-using fast agentic workloads. Released Aug 11, not new this week. OpenRouter free variant: 50 requests/day and 20/minute without purchased credits; higher daily cap after qualifying top-up. No card purchase needed for :free, but card-on-file requirement unverified. NVIDIA logs free endpoint data for security and product improvement: do not send proprietary code, RTL or personal data."
     },
     {
@@ -505,7 +488,7 @@
       "url": "https://openrouter.ai/google/gemma-4-26b-a4b-it:free",
       "expires": null,
       "status": "active",
-      "verified_at": "2026-11-22",
+      "verified_at": "2026-11-25",
       "notes": "25.2B total/3.8B active MoE; 262K context; text/image/video inputs, text outputs, function calling, reasoning and structured output. Apache 2.0. Released Apr 3, not new this week. :free route requires OpenRouter key, no purchased credits; 50 requests/day and 20/minute baseline; no published expiry. Provider-specific data retention and card-on-file requirements unverified."
     },
     {
@@ -526,7 +509,7 @@
       "url": "https://openrouter.ai/google/gemma-4-31b-it:free",
       "expires": null,
       "status": "active",
-      "verified_at": "2026-11-22",
+      "verified_at": "2026-11-25",
       "notes": "30.7B dense model; 262K context, text/image/video inputs and text output; tool calling and JSON mode without schema enforcement. Apache 2.0. Released Apr 2, not new this week. :free route requires OpenRouter API key, no purchased credits; 50 requests/day and 20/minute baseline; no published expiry. Data retention/card requirements unverified."
     },
     {
@@ -691,7 +674,7 @@
       "url": "https://hiapi.ai/en/promotions/black-friday-2026",
       "expires": "2026-11-30",
       "status": "active",
-      "verified_at": "2026-11-24",
+      "verified_at": "2026-11-25",
       "notes": "PURCHASE REQUIRED: at least one successful top-up of any amount. Nov 24–30 Pacific, daily unused tokens expire. OpenAI-compatible API; check promotion activation and overage settings before use. Exact throughput, card and retention terms unverified. Up to 70M tokens over seven days if fully used."
     },
     {
@@ -713,8 +696,28 @@
       "url": "https://hiapi.ai/en/promotions/black-friday-2026",
       "expires": "2026-11-30",
       "status": "active",
-      "verified_at": "2026-11-24",
+      "verified_at": "2026-11-25",
       "notes": "PAID discount: media spend thresholds $50/$100/$300/$500 for 5/10/15/20%, cap $100; single top-up $50/$100/$300 for 5/8/10%, cap $50. Nov 24–30 Pacific. Card and retention terms unverified; no free video quota."
+    },
+    {
+      "id": "google-gemini-2-5-pro-free",
+      "provider": "Google",
+      "offer": "Gemini 2.5 Pro Developer API free tier",
+      "kind": "free-tier",
+      "amount": "Free of charge (input and output tokens)",
+      "agent_ids": [
+        "opencode",
+        "pi",
+        "hermes"
+      ],
+      "access": [
+        "api"
+      ],
+      "url": "https://ai.google.dev/gemini-api/docs/pricing",
+      "expires": null,
+      "status": "active",
+      "verified_at": "2026-11-25",
+      "notes": "Free tier standard inference for eligible projects; no paid upgrade required. Project-specific rate limits and card requirement not independently verified. Free-tier content may be used to improve Google products; avoid confidential code. Paid tier and other services may incur charges; no free image/video generation implied."
     }
   ]
 }
