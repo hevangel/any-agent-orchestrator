@@ -94,6 +94,11 @@ a { color: var(--s1); }
 .links { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; margin-bottom: 6px; }
 ul.tree { list-style: none; margin: 4px 0 0; padding-left: 14px; border-left: 1px solid var(--grid); font-size: 12px; }
 ul.tree li { margin: 3px 0; overflow-wrap: anywhere; }
+.repo-locs { display: flex; flex-wrap: wrap; gap: 4px 8px; margin: 4px 0 6px; font-size: 12px; }
+.loc-item { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 2px 7px; border-radius: 6px; border: 1px solid var(--ring); background: var(--page); }
+.loc-item .loc-machine { font-weight: 600; color: var(--ink); }
+.loc-item .loc-kind { font-size: 11px; color: var(--muted); }
+.loc-item.loc-pref { border-color: var(--s1); }
 code { font-size: 12px; }
 details summary { cursor: pointer; color: var(--ink-2); font-size: 12px; margin-top: 8px; }
 </style>
@@ -208,15 +213,30 @@ function missing(section, what, cmd) {
 
 /* ---------------------------------------------------------------- projects */
 const link = (url, text) => h("a", { href: url, target: "_blank", rel: "noopener" }, text);
+function renderLocations(locs) {
+  if (!locs || !locs.length) return h("div", { class: "repo-locs" }, h("span", { class: "meta" }, "no checkout configured"));
+  return h("div", { class: "repo-locs" }, locs.map(loc => {
+    const machine = loc.machine || loc.provider || "unknown";
+    const kind = loc.kind && loc.kind !== "checkout" ? loc.kind : "";
+    const target = loc.path ? h("code", {}, loc.path) : (loc.url ? link(loc.url, loc.session_id || loc.env_id || "session") : null);
+    const ref = loc.path && loc.url ? link(loc.url, loc.session_id || "session") : null;
+    return h("span", { class: "loc-item" + (loc.preferred ? " loc-pref" : ""), title: loc.id ? `id: ${loc.id}` : "" },
+      h("span", { class: "loc-machine" }, machine),
+      kind ? h("span", { class: "loc-kind" }, `(${kind})`) : null,
+      target,
+      ref);
+  }));
+}
 function repoTree(node, depth = 0) {
   const subs = node.submodules || [], ext = node.external || [];
   const label = depth ? h("span", {}, h("code", {}, node.path), "  ", node.name ? link(node.url, node.name) : node.url) : null;
+  const locs = renderLocations(node.locations);
   const kids = [
     ...subs.map(n => h("li", {}, repoTree(n, depth + 1))),
     ext.length ? h("li", {}, h("details", {}, h("summary", {}, `${ext.length} external reference${ext.length > 1 ? "s" : ""} (not owned)`),
       h("ul", { class: "tree" }, ext.map(e => h("li", { class: "meta" }, h("code", {}, e.path), "  ", e.name ? link(e.url, e.name) : e.url))))) : null,
   ].filter(Boolean);
-  return [label, kids.length ? h("ul", { class: "tree" }, kids) : null];
+  return [label, locs, kids.length ? h("ul", { class: "tree" }, kids) : null];
 }
 function countRepos(node) { return (node.name ? 1 : 0) + (node.submodules || []).reduce((a, n) => a + countRepos(n), 0); }
 function renderProjects(data) {
@@ -224,7 +244,7 @@ function renderProjects(data) {
   const list = (data && data.projects) || [];
   if (!list.length) return fill(sec, h("p", { class: "empty" }, "No projects configured. Add one JSON file per project in projects/."));
   fill(sec,
-    h("p", { class: "meta" }, "Projects this repo manages (projects/*.json). Each is a GitHub Project in a parent repository; owned repos are submodules, references sit under external/. Refresh the tree with ", h("code", {}, "uv run aao projects sync <id>"), "."),
+    h("p", { class: "meta" }, "Projects this repo manages (projects/*.json). Each is a GitHub Project in a parent repository; owned repos are submodules, references sit under external/. Machine/path checkouts come from ", h("code", {}, "workspace/project-location.json"), ". Refresh the tree with ", h("code", {}, "uv run aao projects sync <id>"), "."),
     h("div", { class: "grid" }, list.map(p => {
       const gp = p.github_project || {}, repo = p.repo || {};
       return h("div", { class: "card" },
@@ -604,7 +624,18 @@ document.querySelectorAll("nav [data-tab]").forEach(b => b.addEventListener("cli
   document.querySelectorAll("main section").forEach(x => { x.hidden = x.id !== "tab-" + b.dataset.tab; });
   try { localStorage.setItem("aao-tab", b.dataset.tab); } catch {}
 }));
-$("#refresh").addEventListener("click", async () => { await fetch("/api/refresh", { method: "POST" }); setTimeout(load, 8000); });
+$("#refresh").addEventListener("click", async () => {
+  const btn = $("#refresh");
+  btn.disabled = true;
+  btn.textContent = "Refreshing…";
+  $("#updated").textContent = "Refreshing…";
+  try {
+    await Promise.all([load(), fetch("/api/refresh", { method: "POST" })]);
+  } finally {
+    setTimeout(() => { btn.disabled = false; btn.textContent = "Refresh"; }, 1500);
+    setTimeout(load, 8000);
+  }
+});
 $("#theme").addEventListener("click", () => {
   const dark = matchMedia("(prefers-color-scheme: dark)").matches;
   const cur = document.documentElement.dataset.theme || (dark ? "dark" : "light");

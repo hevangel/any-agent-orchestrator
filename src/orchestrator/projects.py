@@ -20,7 +20,9 @@ from datetime import date, timedelta
 from orchestrator.state import ROOT, read_json
 
 PROJECTS_DIR = ROOT / "projects"
+LOCATIONS_FILE = ROOT / "workspace" / "project-location.json"
 SCHEMA = "aao-project-v1"
+LOCATIONS_SCHEMA = "aao-project-locations-v1"
 ID = re.compile(r"^[a-z0-9][a-z0-9_.-]*$")
 REPO = re.compile(r"^[A-Za-z0-9-]+/[A-Za-z0-9_.-]+$")
 
@@ -112,6 +114,53 @@ def controlled_repos(doc):
         if n.get("name") and n["name"] not in seen and n["name"].split("/")[0].lower() in owners:
             seen.append(n["name"])
     return seen
+
+
+def load_locations(path=None):
+    """Read checkout-local machine/path mappings from workspace/project-location.json."""
+    data = read_json(path or LOCATIONS_FILE)
+    if not isinstance(data, dict):
+        return {"repos": {}, "projects": {}}
+    repos = data.get("repos") if isinstance(data.get("repos"), dict) else {}
+    projects_map = data.get("projects") if isinstance(data.get("projects"), dict) else {}
+    return {"repos": repos, "projects": projects_map}
+
+
+def _repo_location_list(entry):
+    if not isinstance(entry, dict):
+        return []
+    preferred = entry.get("preferred")
+    out = []
+    for loc in entry.get("locations") or []:
+        if not isinstance(loc, dict):
+            continue
+        item = dict(loc)
+        if preferred and item.get("id") == preferred:
+            item["preferred"] = True
+        out.append(item)
+    return out
+
+
+def attach_locations(doc, locations_doc=None):
+    """Return a copy of doc['repo'] with machine/path locations attached to parent and child repos."""
+    loc_doc = locations_doc if locations_doc is not None else load_locations()
+    repos_map = loc_doc.get("repos") or {}
+    projects_map = loc_doc.get("projects") or {}
+    project_id = doc.get("id")
+
+    def walk(node, is_root=False):
+        out = dict(node)
+        name = out.get("name")
+        locs = _repo_location_list(repos_map.get(name)) if name else []
+        if is_root and not locs and project_id:
+            locs = _repo_location_list(projects_map.get(project_id))
+        out["locations"] = locs
+        if out.get("submodules"):
+            out["submodules"] = [walk(sub, False) for sub in out["submodules"]]
+        return out
+
+    repo = doc.get("repo")
+    return walk(repo, True) if isinstance(repo, dict) else repo
 
 
 def validate(doc, filename=None):
