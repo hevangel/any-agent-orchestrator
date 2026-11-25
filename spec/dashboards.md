@@ -4,7 +4,7 @@
 
 | Tab | Source | Module |
 | --- | --- | --- |
-| Projects | `projects/*.json`: GitHub Project link, parent repo, owned submodule tree, external references | `projects.py`, [spec/github_project.md](github_project.md#project-configs) |
+| Projects | `projects/*.json` + `workspace/project-location.json`: GitHub Project link, parent repo, owned submodule tree, external references, per-repo `machine`/`path` checkouts | `projects.py`, [spec/github_project.md](github_project.md#project-configs) |
 | Machines | herdr + SSH probe + cloud task lists | `machines.py`, `probe.py`, [spec/machines.md](machines.md) |
 | Quotas | CLI status screens → Copilot entitlement API → quota-cli → Codex logs; web usage pages (Muse) | `quotas.py`, `quota_screens.py`, `web_muse.py` |
 | Tokens & cost | local session logs on every machine, priced from the price table | `usage_scan.py`, `usage.py`, `pricing.py` |

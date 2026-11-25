@@ -49,16 +49,19 @@ def _scheduler(intervals):
 
 
 def projects_payload():
-    """projects/*.json as committed, with the external/ rule checked; no network calls."""
+    """projects/*.json as committed, with the external/ rule checked and local locations attached; no network calls."""
     from orchestrator import projects
 
+    locations = projects.load_locations()
     out = []
     for doc in projects.load_all():
         try:
             warnings = projects.tree_warnings(doc) + projects.validate(doc, f"{doc.get('id')}.json")
+            repo = projects.attach_locations(doc, locations)
         except (KeyError, TypeError, AttributeError) as exc:
             warnings = [f"unreadable config: {exc}"]
-        out.append({**doc, "warnings": warnings})
+            repo = doc.get("repo")
+        out.append({**doc, "repo": repo, "warnings": warnings})
     return {"projects": out}
 
 

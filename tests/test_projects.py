@@ -109,6 +109,7 @@ def test_committed_project_configs_are_valid():
     assert projects.validate_all() == []
     ids = [p["id"] for p in projects.load_all()]
     assert {"ai_engineer", "silicon_wars_anime_girls"} <= set(ids)
+    assert "better_call_sophie" not in ids
 
 
 def test_projects_api_payload(tmp_path, monkeypatch):
@@ -116,6 +117,65 @@ def test_projects_api_payload(tmp_path, monkeypatch):
     projects.sync(d, fetch)
     (tmp_path / "parent.json").write_text(json.dumps(d), encoding="utf-8")
     monkeypatch.setattr(projects, "PROJECTS_DIR", tmp_path)
+    monkeypatch.setattr(projects, "LOCATIONS_FILE", tmp_path / "missing-locations.json")
     payload = server.projects_payload()
     assert payload["projects"][0]["id"] == "parent"
     assert payload["projects"][0]["warnings"] == ["libs/foreign: other/foreign is not owned by me but is not under external/"]
+    assert payload["projects"][0]["repo"]["locations"] == []
+
+
+def test_projects_api_payload_attaches_repo_locations(tmp_path, monkeypatch):
+    d = doc()
+    projects.sync(d, fetch)
+    (tmp_path / "parent.json").write_text(json.dumps(d), encoding="utf-8")
+    loc_file = tmp_path / "project-location.json"
+    loc_file.write_text(json.dumps({
+        "schema": projects.LOCATIONS_SCHEMA,
+        "repos": {
+            "me/parent": {
+                "preferred": "local-a",
+                "locations": [
+                    {"id": "local-a", "kind": "checkout", "machine": "local", "path": "B:\\parent"},
+                    {"id": "local-b", "kind": "checkout", "machine": "local", "path": "B:\\parent-copy"},
+                    {"id": "ssh-1", "kind": "checkout", "machine": "brunhild", "path": "/home/u/parent"},
+                ],
+            },
+            "me/deep": {
+                "preferred": "cloud",
+                "locations": [
+                    {"id": "local", "kind": "checkout", "machine": "local", "path": "B:\\deep"},
+                    {"id": "cloud", "kind": "cloud-vm", "machine": "codex-cloud", "path": "/workspace/deep", "env_id": "env_1"},
+                ],
+            },
+        },
+    }), encoding="utf-8")
+    monkeypatch.setattr(projects, "PROJECTS_DIR", tmp_path)
+    monkeypatch.setattr(projects, "LOCATIONS_FILE", loc_file)
+
+    payload = server.projects_payload()
+    repo = payload["projects"][0]["repo"]
+    assert len(repo["locations"]) == 3
+    assert repo["locations"][0]["preferred"] is True
+    assert "preferred" not in repo["locations"][1]
+    assert repo["locations"][2]["machine"] == "brunhild"
+
+    core = repo["submodules"][0]
+    assert core["locations"] == []
+    deep = core["submodules"][0]
+    assert [loc["machine"] for loc in deep["locations"]] == ["local", "codex-cloud"]
+    assert deep["locations"][1]["preferred"] is True
+    assert deep["locations"][1]["kind"] == "cloud-vm"
+
+    # Legacy projects.<id> fallback works for the parent repo when repos.<name> is absent.
+    loc_file.write_text(json.dumps({
+        "schema": projects.LOCATIONS_SCHEMA,
+        "projects": {
+            "parent": {
+                "preferred": "local",
+                "locations": [{"id": "local", "kind": "checkout", "machine": "local", "path": "B:\\legacy"}],
+            }
+        },
+    }), encoding="utf-8")
+    fallback_repo = server.projects_payload()["projects"][0]["repo"]
+    assert fallback_repo["locations"][0]["path"] == "B:\\legacy"
+    assert fallback_repo["locations"][0]["preferred"] is True
