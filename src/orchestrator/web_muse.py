@@ -68,16 +68,20 @@ SCRIPT = r"""async page => {
 }"""
 
 
-def generate_video(prompt, directory, timeout_s=720, *, references=()):
-    return _generate("video", prompt, directory, timeout_s, references=references)
+def generate_video(prompt, directory, timeout_s=720, *, aspect_ratio=None, references=(), files=()):
+    return _generate("video", prompt, directory, timeout_s, aspect_ratio=aspect_ratio,
+                     references=references, files=files)
 
 
-def generate_image(prompt, directory, timeout_s=720, *, aspect_ratio=None, references=()):
-    return _generate("image", prompt, directory, timeout_s, aspect_ratio=aspect_ratio, references=references)
+def generate_image(prompt, directory, timeout_s=720, *, aspect_ratio=None, references=(), files=()):
+    return _generate("image", prompt, directory, timeout_s, aspect_ratio=aspect_ratio,
+                     references=references, files=files)
 
 
-def generate_audio(prompt, directory, timeout_s=720, *, references=()):
-    """Use Muse's video tool for a short soundtrack and save just its audio."""
+def generate_audio(prompt, directory, timeout_s=720, *, references=(), files=(), voice=None, tts=False):
+    """Generate audio in Muse: direct TTS MP3 when `tts`/`voice` is given, else a video's soundtrack."""
+    if tts or voice:
+        return _generate_tts_audio(prompt, directory, timeout_s, voice=voice, references=references, files=files)
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
         return {"ok": False, "reason": "Muse soundtrack export requires FFmpeg on PATH"}
@@ -87,7 +91,7 @@ def generate_audio(prompt, directory, timeout_s=720, *, references=()):
               else "Use a simple stationary visual.")
     brief = f"Make a short video with sound. The important part is the soundtrack. {visual}\n\n{prompt}"
     with TemporaryDirectory(prefix="muse-video-", dir=directory) as workspace:
-        result = generate_video(brief, workspace, timeout_s, references=references)
+        result = generate_video(brief, workspace, timeout_s, references=references, files=files)
         if not result.get("ok"):
             return result
         audio = directory / "Muse soundtrack.mp3"
@@ -99,7 +103,32 @@ def generate_audio(prompt, directory, timeout_s=720, *, references=()):
     return {"ok": True, "path": str(audio)}
 
 
-def _generate(kind, prompt, directory, timeout_s, *, aspect_ratio=None, references=()):
+def _generate_tts_audio(prompt, directory, timeout_s, *, voice=None, references=(), files=()):
+    directory = Path(directory).resolve()
+    directory.mkdir(parents=True, exist_ok=True)
+    filename = f"aao-{directory.name[-12:]}.mp3"
+    unavailable = f"AAO_AUDIO_UNAVAILABLE_{directory.name[-12:]}"
+    voice_clause = f" Use the {voice} voice." if voice else ""
+    tts_prompt = (
+        f"Use your text-to-speech tool to speak the text below as one MP3 audio file.{voice_clause} "
+        f"Attach the resulting MP3 as a downloadable sandbox file named {filename}. Keep it in this chat. "
+        "Do not send it to anyone, publish it, purchase anything, or use a service that requires approval. "
+        f"If text-to-speech generation is unavailable, write {unavailable}.\n\nText to speak:\n{prompt}"
+    )
+    attachments = [Path(path).resolve().as_posix() for path in (*references, *files)]
+    cfg = {"prompt": tts_prompt, "directory": directory.as_posix(), "filename": filename, "kind": "audio",
+           "preview": "Open generated audio ", "extension": ".mp3", "unavailable": unavailable,
+           "timeoutMs": timeout_s * 1000, "references": attachments}
+    ok, _, error = web.open_target(TARGET, headed=True)
+    if not ok:
+        return {"ok": False, "reason": error}
+    try:
+        return web.run_script(TARGET, SCRIPT.replace("__CFG__", json.dumps(cfg), 1), timeout_s + 100)
+    finally:
+        web.release(TARGET)
+
+
+def _generate(kind, prompt, directory, timeout_s, *, aspect_ratio=None, references=(), files=()):
     directory = Path(directory).resolve()
     extension, preview = (".png", "Open generated image ") if kind == "image" else (".mp4", "Open animated video ")
     filename = f"aao-{directory.name[-12:]}{extension}"
@@ -110,13 +139,16 @@ def _generate(kind, prompt, directory, timeout_s, *, aspect_ratio=None, referenc
               f"as a downloadable sandbox file named {filename}. Keep it in this chat. "
               "Do not send it to anyone, publish it, purchase anything, or use a service that requires approval. "
               f"If {kind} generation is unavailable, write {unavailable}.\n\n{kind.title()} description:\n{prompt}")
-    if references:
+    if references and not files:
         prompt += f"\nUse the attached image or images as visual references for the {kind}."
+    elif references or files:
+        prompt += f"\nUse the attached files as inputs for the {kind}."
     if aspect_ratio:
-        prompt += f"\nUse a {aspect_ratio} aspect ratio for the output image."
+        prompt += f"\nCreate the output in exactly {aspect_ratio} aspect ratio."
+    attachments = [Path(path).resolve().as_posix() for path in (*references, *files)]
     cfg = {"prompt": prompt, "directory": directory.as_posix(), "filename": filename, "kind": kind,
            "preview": preview, "extension": extension, "unavailable": unavailable, "timeoutMs": timeout_s * 1000,
-           "references": [Path(path).resolve().as_posix() for path in references]}
+           "references": attachments}
     ok, _, error = web.open_target(TARGET, headed=True)
     if not ok:
         return {"ok": False, "reason": error}
@@ -276,6 +308,233 @@ def quota(timeout_s=90):
             return quota_account({"ok": False, "reason": error})
     try:
         return quota_account(web.run_script(TARGET, QUOTA_SCRIPT, timeout_s))
+    finally:
+        if opened:
+            web.close_target(TARGET)
+
+
+# ---------------------------------------------------------------- library & chats (muse.ai web)
+LIBRARY_URL = "https://muse.ai/library/artifacts"
+
+LIBRARY_LIST_SCRIPT = r"""async page => {
+  const cfg = __CFG__;
+  let stage = 'Open Muse Library';
+  try {
+    if (!page.url().includes('/library')) {
+      await page.goto(cfg.libraryUrl, { waitUntil: 'domcontentloaded' });
+    }
+    const settings = page.getByRole('button', { name: 'Settings', exact: true });
+    try { await settings.waitFor({ timeout: 25000 }); }
+    catch { return { ok: false, loggedIn: false, url: page.url(), reason: 'Muse is not signed in (run: aao web login muse)' }; }
+    await page.waitForTimeout(2000);
+    stage = 'Read Muse Library items';
+    const items = await page.evaluate((limit) => {
+      const buttons = [...document.querySelectorAll('[data-testid="hatch-sandbox-file-card-options"]')];
+      const out = [];
+      for (const btn of buttons) {
+        const card = btn.closest('.hatch-chat-groupable-bubble') || btn.parentElement?.parentElement || btn.parentElement;
+        const text = (card?.innerText || '').trim();
+        const lines = text.split('\n').map(s => s.trim()).filter(Boolean);
+        const title = lines.find(l => /\.(png|jpe?g|webp|mp4|mov|webm|mp3|wav|m4a|ogg|pdf|txt|md|json|py|js)$/i.test(l))
+          || lines[0] || 'Untitled';
+        const lower = title.toLowerCase();
+        const kind = /\.(mp4|mov|webm)$/.test(lower) ? 'video'
+          : /\.(mp3|wav|m4a|ogg)$/.test(lower) ? 'audio'
+          : /\.(png|jpe?g|webp)$/.test(lower) ? 'image'
+          : 'document';
+        out.push({ index: out.length + 1, kind, title, url: location.href });
+        if (limit && out.length >= limit) break;
+      }
+      return out;
+    }, cfg.limit || null);
+    const media = items.filter(i => i.kind !== 'document');
+    const documents = items.filter(i => i.kind === 'document');
+    return {
+      ok: true,
+      url: page.url(),
+      media: cfg.kind === 'documents' ? [] : media,
+      documents: cfg.kind === 'media' ? [] : documents,
+    };
+  } catch (error) {
+    return { ok: false, reason: stage + ': ' + String(error.message || error).split('\n')[0], url: page.url() };
+  }
+}"""
+
+LIBRARY_DOWNLOAD_SCRIPT = r"""async page => {
+  const cfg = __CFG__;
+  let stage = 'Open Muse Library';
+  try {
+    if (!page.url().includes('/library')) {
+      await page.goto(cfg.libraryUrl, { waitUntil: 'domcontentloaded' });
+    }
+    const settings = page.getByRole('button', { name: 'Settings', exact: true });
+    try { await settings.waitFor({ timeout: 25000 }); }
+    catch { return { ok: false, loggedIn: false, url: page.url(), reason: 'Muse is not signed in (run: aao web login muse)' }; }
+    await page.waitForTimeout(2000);
+    stage = 'Locate Muse Library items';
+    const buttons = page.locator('[data-testid="hatch-sandbox-file-card-options"]');
+    const total = await buttons.count();
+    if (!total) return { ok: false, reason: 'No downloadable items found in Muse Library', url: page.url() };
+    const indices = [];
+    if (cfg.downloadAll) {
+      const cap = cfg.limit ? Math.min(total, cfg.limit) : total;
+      for (let i = 0; i < cap; i++) indices.push(i);
+    } else {
+      const titles = await buttons.evaluateAll(bs => bs.map(b => {
+        const card = b.closest('.hatch-chat-groupable-bubble') || b.parentElement?.parentElement || b.parentElement;
+        return (card?.innerText || '').trim();
+      }));
+      for (const want of cfg.items) {
+        if (/^\d+$/.test(String(want))) {
+          const idx = Number(want) - 1;
+          if (idx >= 0 && idx < total) indices.push(idx);
+        } else {
+          const needle = String(want).toLowerCase();
+          const idx = titles.findIndex(t => t.toLowerCase().includes(needle));
+          if (idx >= 0) indices.push(idx);
+        }
+      }
+    }
+    if (!indices.length) return { ok: false, reason: 'No matching items found in Muse Library', url: page.url() };
+    const files = [];
+    for (const idx of indices) {
+      stage = 'Download Muse Library item ' + (idx + 1);
+      await buttons.nth(idx).click({ timeout: 10000 });
+      const downloadItem = page.getByRole('menuitem', { name: 'Download', exact: true });
+      await downloadItem.waitFor({ timeout: 10000 });
+      const [dl] = await Promise.all([
+        page.waitForEvent('download', { timeout: 30000 }),
+        downloadItem.click({ timeout: 10000 }),
+      ]);
+      const name = dl.suggestedFilename() || ('muse-library-' + (idx + 1));
+      const dest = cfg.directory + '/' + name;
+      await dl.saveAs(dest);
+      files.push(dest);
+    }
+    return { ok: true, files, url: page.url() };
+  } catch (error) {
+    return { ok: false, reason: stage + ': ' + String(error.message || error).split('\n')[0], url: page.url() };
+  }
+}"""
+
+
+def list_library(kind="all", limit=None, timeout_s=90):
+    """List generated media and documents in Muse's Library (`https://muse.ai/library/artifacts`)."""
+    opened = not web.is_open(TARGET)
+    if opened:
+        ok, _, error = web.open_target(TARGET, headed=False)
+        if not ok:
+            return {"ok": False, "target": TARGET, "reason": error}
+    try:
+        cfg = {"libraryUrl": LIBRARY_URL, "kind": kind, "limit": limit}
+        return web.run_script(TARGET, LIBRARY_LIST_SCRIPT.replace("__CFG__", json.dumps(cfg), 1), timeout_s)
+    finally:
+        if opened:
+            web.close_target(TARGET)
+
+
+def download_library(directory, items=(), download_all=False, limit=None, timeout_s=180):
+    """Download selected (or all) items from Muse's Library to `directory`."""
+    if not download_all and not items:
+        raise ValueError("Provide --item or --all to download from Muse Library")
+    out = Path(directory).expanduser().resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    opened = not web.is_open(TARGET)
+    if opened:
+        ok, _, error = web.open_target(TARGET, headed=True)
+        if not ok:
+            return {"ok": False, "target": TARGET, "reason": error}
+    try:
+        cfg = {"libraryUrl": LIBRARY_URL, "directory": out.as_posix(),
+               "items": list(items), "downloadAll": bool(download_all), "limit": limit}
+        return web.run_script(TARGET, LIBRARY_DOWNLOAD_SCRIPT.replace("__CFG__", json.dumps(cfg), 1), timeout_s)
+    finally:
+        if opened:
+            web.close_target(TARGET)
+
+
+CHATS_SCRIPT = r"""async page => {
+  const cfg = __CFG__;
+  let stage = 'Open Muse';
+  try {
+    await page.goto('https://muse.ai/', { waitUntil: 'domcontentloaded' });
+    const settings = page.getByRole('button', { name: 'Settings', exact: true });
+    try { await settings.waitFor({ timeout: 25000 }); }
+    catch { return { ok: false, loggedIn: false, url: page.url(), reason: 'Muse is not signed in (run: aao web login muse)' }; }
+    await page.waitForTimeout(1500);
+    if (cfg.op === 'search') {
+      stage = 'Search Muse chats';
+      const searchInput = page.getByPlaceholder('Search').filter({ visible: true }).first();
+      if (!await searchInput.isVisible().catch(() => false)) {
+        await page.getByTestId('hatch-nav-search').click({ timeout: 10000 });
+      }
+      await searchInput.fill(cfg.query);
+      await page.waitForTimeout(1500);
+    }
+    const rows = page.locator('[data-testid="hatch-thread-row"]');
+    const count = await rows.count();
+    if (cfg.op === 'read') {
+      stage = 'Open Muse chat';
+      let targetIdx = -1;
+      const titles = await rows.evaluateAll(rs => rs.map(r => (r.innerText || '').trim()));
+      if (/^\d+$/.test(String(cfg.chat))) {
+        targetIdx = Number(cfg.chat) - 1;
+      } else {
+        const needle = String(cfg.chat).toLowerCase();
+        targetIdx = titles.findIndex(t => t.toLowerCase() === needle || t.toLowerCase().includes(needle));
+      }
+      if (targetIdx < 0 || targetIdx >= count) {
+        return { ok: false, reason: 'Muse chat not found: ' + cfg.chat, url: page.url() };
+      }
+      await rows.nth(targetIdx).click({ timeout: 10000 });
+      await page.waitForTimeout(2000);
+      const messages = await page.evaluate(() => {
+        return [...document.querySelectorAll('.hatch-chat-groupable-bubble')].map(b => {
+          const isAsst = !!b.querySelector('[data-hatch-assistant-message-body]');
+          return { role: isAsst ? 'assistant' : 'user', text: (b.innerText || '').trim() };
+        }).filter(m => m.text);
+      });
+      return { ok: true, title: titles[targetIdx], url: page.url(), messages };
+    }
+    const items = await rows.evaluateAll((rs, limit) => {
+      const out = [];
+      for (const r of rs) {
+        const lines = (r.innerText || '').split('\n').map(s => s.trim()).filter(Boolean);
+        out.push({ index: out.length + 1, title: lines[0] || '', subtitle: lines.slice(1).join(' — ') });
+        if (limit && out.length >= limit) break;
+      }
+      return out;
+    }, cfg.limit || null);
+    return { ok: true, url: page.url(), chats: items };
+  } catch (error) {
+    return { ok: false, reason: stage + ': ' + String(error.message || error).split('\n')[0], url: page.url() };
+  }
+}"""
+
+
+def list_chats(limit=None, timeout_s=60):
+    """List Muse sidebar chats and channels."""
+    return _run_chats({"op": "list", "limit": limit}, timeout_s)
+
+
+def search_chats(query, limit=None, timeout_s=60):
+    """Search Muse chats by query."""
+    return _run_chats({"op": "search", "query": query, "limit": limit}, timeout_s)
+
+
+def read_chat(chat, timeout_s=60):
+    """Open a Muse chat by 1-based index or title and return its messages."""
+    return _run_chats({"op": "read", "chat": chat}, timeout_s)
+
+
+def _run_chats(cfg, timeout_s):
+    opened = not web.is_open(TARGET)
+    if opened:
+        ok, _, error = web.open_target(TARGET, headed=False)
+        if not ok:
+            return {"ok": False, "target": TARGET, "reason": error}
+    try:
+        return web.run_script(TARGET, CHATS_SCRIPT.replace("__CFG__", json.dumps(cfg), 1), timeout_s)
     finally:
         if opened:
             web.close_target(TARGET)

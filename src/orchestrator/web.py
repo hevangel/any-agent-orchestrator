@@ -92,8 +92,14 @@ TARGETS = {
              "chat": False},
     "flow-music": {"url": "https://www.flowmusic.app/",
                    "composer": ["[aria-label='Chat message']"], "chat": False},
-    "muse": {"url": "https://muse.ai/", "composer": ["textarea[placeholder='Message']", "textarea",
-                                                     "div[contenteditable='true']"], "chat": True},
+    "muse": {"url": "https://muse.ai/",
+             "composer": ["textarea[placeholder='Message']", "textarea", "div[contenteditable='true']"],
+             "send": "button[aria-label='Send']",
+             "user": ".hatch-chat-groupable-bubble:not(:has([data-hatch-assistant-message-body]))",
+             "assistant": "[data-hatch-assistant-message-body]",
+             "busy": ["button[aria-label^='Stop' i]"],
+             "attach": {"input": "input[type=file][multiple]", "chip": "button[aria-label='Remove attachment']"},
+             "chat": True},
     "zai": {"url": "https://chat.z.ai/", "composer": ["textarea", "div[contenteditable='true']"], "chat": True},
     # The site opens a paired computer's task list. Existing tasks are selected in the UI.
     "autoclaw": {"url": "https://autoclaw-remote-web.z.ai/", "chat": False},
@@ -211,13 +217,17 @@ PAGE_SCRIPT = r"""async page => {
   }
   if ((cfg.files || []).length) {
     const before = await chips();
-    await click(page.locator(a.menu).filter({ visible: true }).first());
-    await page.waitForTimeout(800);
-    const inputs = page.locator('input[type=file]');
-    const idx = (await inputs.evaluateAll((is, has) => is.map(i => (i.accept || '').includes(has)), a.inputAccepts)).indexOf(true);
-    if (idx < 0) { await escape(); return fail('attach', 'no file input for documents and code'); }
-    await inputs.nth(idx).setInputFiles(cfg.files);
-    await escape();
+    if (a.input && !a.menu) {
+      await page.locator(a.input).first().setInputFiles(cfg.files);
+    } else {
+      await click(page.locator(a.menu).filter({ visible: true }).first());
+      await page.waitForTimeout(800);
+      const inputs = page.locator('input[type=file]');
+      const idx = (await inputs.evaluateAll((is, has) => is.map(i => (i.accept || '').includes(has)), a.inputAccepts)).indexOf(true);
+      if (idx < 0) { await escape(); return fail('attach', 'no file input for documents and code'); }
+      await inputs.nth(idx).setInputFiles(cfg.files);
+      await escape();
+    }
     if (!await chipsReady(before + cfg.files.length)) return fail('attach', 'the files did not finish uploading', { attached: await chips() - before });
   }
   if (cfg.repo) {

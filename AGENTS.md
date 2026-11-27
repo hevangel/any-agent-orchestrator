@@ -75,19 +75,19 @@ uv run pytest -m e2e -k "herdr-remote-brunhild-codex"   # one e2e case
 uv run aao accounts [--agent claude --host local]   # list/validate .env accounts, show which is used next
 uv run aao web login <site>|--all         # log in once by hand; the playwright-cli profile is saved
 uv run aao web status --all               # which saved web logins still work
-uv run aao web image chatgpt|flow|gemini|grok|muse --prompt "..." [--out DIR]
+uv run aao web image chatgpt|flow|gemini|grok|muse --prompt "..." [--reference FILE ...] [--aspect RATIO] [--chat ID] [--out DIR]
 uv run aao web video flow|gemini|grok|muse --prompt "..." [--reference FILE] [--out DIR]
 uv run aao web audio flow-music|grok|muse --prompt "..." [--out DIR]
 uv run --extra grok-api aao media-serve   # ArtCraft and opt-in Craft AI bridge
 uv run aao web ask claude --chat "<title|id>" --prompt "..."   # continue an existing chat
 uv run aao chats claude|claude-code-web list|sections|search <q>|pin|unpin|move <chat> <section> [--create]|unsection|new-section|delete-section   # chats / Code sessions (web_chats.py)
 uv run aao web ask gemini --mode chat|task [--file F ...] [--repo <GitHub URL>] --prompt "..."   # attach files (zip a folder) or a GitHub repo
-uv run aao web image chatgpt|flow|gemini|grok|muse --prompt "..." [--out DIR]
+uv run aao web image chatgpt|flow|gemini|grok|muse --prompt "..." [--reference FILE ...] [--aspect RATIO] [--chat ID] [--out DIR]
 uv run aao web video flow|gemini|grok|muse --prompt "..." [--reference FILE] [--out DIR]
 uv run aao web audio flow-music|grok|muse --prompt "..." [--out DIR]  # Muse also accepts --reference FILE
 uv run --extra grok-api aao media-serve   # ArtCraft and opt-in Craft AI bridge
 uv run aao grok image|video "<prompt>" [--ref NAME ..] [--pick generation:N] [--dry-run]|reference list|new|edit|delete|library generations|uploads|voices|template list|show|run <slug>|draw "<prompt>" --sketch F|canvas ["<prompt>"] [--canvas <url|id>] [--note T] [--list]   # Grok Imagine (web_grok.py)
-uv run aao chats gemini list [--notebook N] [--status 'Needs attention']|notebooks|search <q>|read <chat>|pin|unpin|move <chat> <notebook>|unnotebook|new-notebook|delete-notebook   # Gemini (web_chats_gemini.py)
+uv run aao chats gemini list [--notebook N] [--status 'Needs attention']|notebooks|search <q>|read <chat> [--notebook N]|pin|unpin|move <chat> <notebook>|unnotebook|new-notebook|delete-notebook   # Gemini (web_chats_gemini.py)
 uv run aao chats grok list [--project P]|projects|search <q>|pin|unpin|move <chat> <project> [--create]|unproject|new-project|delete-project   # Grok chat + projects (web_chats_grok.py; reads via grok.com's own endpoints)
 uv run aao chats chatgpt list [--project P]|projects|search <q>|pin|unpin|move <chat> <project> [--create]|unproject|new-project|delete-project   # ChatGPT: groups are projects (web_chats_chatgpt.py)
 uv run aao codex threads|read <t>|new --prompt .. [--env --work-in --permission --model --effort --wait]|send <t> --prompt ..|wait <t>|archive <t>

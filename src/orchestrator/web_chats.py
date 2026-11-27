@@ -88,6 +88,8 @@ RECIPES = {
     "grok": web_chats_grok.RECIPE,
     # gemini.google.com: groups are notebooks (web_chats_gemini.py)
     "gemini": web_chats_gemini.RECIPE,
+    # muse.ai: side chats and search (web_muse.py)
+    "muse": {"engine": "muse", "groupWord": "chat"},
 }
 
 SCRIPT = r"""async page => {
@@ -448,6 +450,8 @@ def run(target, op, timeout_s=120, **args):
 def resolve(target, chat):
     """<chat> (id, URL or exact title) -> {"id", "title", "url"} or {"error"}; the session must be open."""
     recipe = _recipe(target)
+    if "idPattern" not in recipe:
+        raise ValueError(f"chat URL resolution is not supported for {target!r}")
     match = re.search(recipe["idPattern"], str(chat), re.I)
     if match:  # no page needed for an id or URL
         chat_id = match.group(0).lower() if recipe["itemType"] == "chat" else match.group(0)
@@ -458,7 +462,34 @@ def resolve(target, chat):
 
 def session(target, op, settings=None, **args):
     """Open the target headed/headless per settings, run one operation, close the browser."""
-    _recipe(target)
+    recipe = _recipe(target)
+    if recipe.get("engine") == "muse":
+        from orchestrator import web_muse
+
+        if op == "list":
+            res = web_muse.list_chats()
+            if not res.get("ok"):
+                return {"target": target, **res}
+            items = [{"title": c["title"], "detail": c.get("subtitle", ""), "id": str(c["index"])}
+                     for c in res.get("chats", [])]
+            return {"target": target, "ok": True,
+                    "sections": [{"kind": "recents", "name": "Chats", "collapsed": False, "items": items}]}
+        if op == "search":
+            res = web_muse.search_chats(args.get("query") or "")
+            if not res.get("ok"):
+                return {"target": target, **res}
+            results = [{"type": "chat", "title": c["title"], "id": str(c["index"]), "url": ""}
+                       for c in res.get("chats", [])]
+            return {"target": target, "ok": True, "results": results}
+        if op == "read":
+            res = web_muse.read_chat(args.get("chat") or "")
+            if not res.get("ok"):
+                return {"target": target, **res}
+            msgs = res.get("messages") or []
+            last_user = next((m["text"] for m in reversed(msgs) if m["role"] == "user"), "")
+            last_asst = next((m["text"] for m in reversed(msgs) if m["role"] == "assistant"), "")
+            return {"target": target, **res, "lastPrompt": last_user, "reply": last_asst}
+        return {"target": target, "ok": False, "error": f"Muse does not support {op}"}
     ok, _, err = web.open_target(target, settings=settings)
     if not ok:
         return {"target": target, "ok": False, "error": err}

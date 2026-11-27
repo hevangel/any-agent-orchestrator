@@ -14,7 +14,7 @@ def test_resolve_ids_and_urls_without_a_browser():
 
 def test_unstudied_target_is_refused():
     with pytest.raises(ValueError):
-        web_chats.resolve("muse", "some title")
+        web_chats.resolve("zai", "some title")
 
 
 def test_script_payload_is_valid_json(monkeypatch):
@@ -140,3 +140,14 @@ def test_codex_new_and_answer_arguments(monkeypatch):
     assert seen["kw"]["text"] == "use green" and seen["kw"]["choice"] is None
     with pytest.raises(SystemExit):  # --choice and --text are exclusive
         cli.main(["codex", "answer", "T", "--choice", "red", "--text", "x"])
+
+
+def test_gemini_read_accepts_notebook(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(web_chats, "session", lambda target, op, **kw: seen.update(target=target, op=op, kw=kw) or {"ok": True})
+    assert cli.main(["chats", "gemini", "read", "Branch • Art Style Generation Status", "--notebook", "Art Style"]) == 0
+    assert seen == {
+        "target": "gemini",
+        "op": "read",
+        "kw": {"chat": "Branch • Art Style Generation Status", "group": "Art Style"},
+    }

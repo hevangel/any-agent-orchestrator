@@ -249,8 +249,30 @@ SCRIPT = r"""async page => {
         return c.error ? fail(c.error, { matches: c.matches }) : done({ ok: true, ...c });
       }
       case 'read': {  // one chat: last prompt, reply, task state; a waiting task is reported, not answered
-        const c = await chatArg();
-        await goto('/app/' + c.id);
+        let chatId = null;
+        const idMatch = String(cfg.chat || '').match(new RegExp('(?:/app/)?(' + r.idPattern + ')', 'i'));
+        if (cfg.group && !idMatch) {
+          await openNotebook(cfg.group);
+          const rows = page.locator(r.notebookChat);
+          const count = await rows.count();
+          const want = String(cfg.chat || '').trim().toLowerCase();
+          const matches = [];
+          for (let i = 0; i < count; i++) {
+            const t = (await rows.nth(i).locator(r.notebookChatTitle).textContent() || '').trim();
+            if (t.toLowerCase() === want) matches.push(i);
+          }
+          if (!matches.length) return fail('no chat titled "' + cfg.chat + '" in notebook "' + cfg.group + '"');
+          if (matches.length > 1) return fail('several chats are titled "' + cfg.chat + '" in notebook "' + cfg.group + '"');
+          await click(rows.nth(matches[0]).locator(r.notebookChatTitle).first());
+          for (let i = 0; i < 25 && !new RegExp('/app/' + r.idPattern, 'i').test(page.url()); i++) await wait(300);
+          const opened = page.url().match(new RegExp('/app/(' + r.idPattern + ')', 'i'));
+          if (!opened) return fail('opening chat "' + cfg.chat + '" in notebook "' + cfg.group + '" did not navigate to /app/<id>');
+          chatId = opened[1].toLowerCase();
+        } else {
+          const c = await chatArg();
+          chatId = c.id;
+          await goto('/app/' + chatId);
+        }
         await page.locator(r.user).first().waitFor({ timeout: 20000 }).catch(() => {});
         await wait(1500);
         const info = await page.evaluate(r => {
@@ -273,8 +295,8 @@ SCRIPT = r"""async page => {
         }, r);
         let working = false;
         for (const s of r.busy) if (await page.locator(s).first().isVisible().catch(() => false)) working = true;
-        const row = (await chats()).find(x => x.id === c.id);
-        return done({ ok: true, id: c.id, url: chatUrl(c.id), ...info, working, ...(row && row.status ? { status: row.status } : {}) });
+        const row = (await chats()).find(x => x.id === chatId);
+        return done({ ok: true, id: chatId, url: chatUrl(chatId), ...info, working, ...(row && row.status ? { status: row.status } : {}) });
       }
       case 'pin': case 'unpin': {
         const c = await chatArg();

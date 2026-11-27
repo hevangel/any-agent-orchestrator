@@ -9,7 +9,8 @@ from uuid import uuid4
 from orchestrator import free_tokens, pricing
 from orchestrator.collect import COLLECTORS
 from orchestrator.media_references import (
-    AUDIO_IMAGE_REFERENCE_LIMITS, IMAGE_FILES, VIDEO_REFERENCE_LIMITS, validate_image_reference,
+    AUDIO_IMAGE_REFERENCE_LIMITS, IMAGE_FILES, MUSE_WEB_REFERENCE_LIMIT, VIDEO_REFERENCE_LIMITS,
+    validate_image_reference, validate_muse_media_file,
 )
 from orchestrator.state import DATA_DIR, read_json
 
@@ -121,11 +122,14 @@ FLOW_MUSIC_OPTIONS = ("lyrics", "style", "length", "instrumental", "song")
 
 
 def _media_reference_options(kind, target, paths):
-    # Video targets, Flow image (ingredients) and Muse audio take image references.
-    limits = (VIDEO_REFERENCE_LIMITS if kind == "video" else AUDIO_IMAGE_REFERENCE_LIMITS if kind == "audio"
-              else {"flow": VIDEO_REFERENCE_LIMITS["flow"]} if kind == "image" else {})
+    # Video targets, Flow/Gemini/Muse image, and Muse audio take image references.
+    if target == "muse" and kind in ("image", "video", "audio"):
+        limits = {"muse": MUSE_WEB_REFERENCE_LIMIT}
+    else:
+        limits = (VIDEO_REFERENCE_LIMITS if kind == "video" else AUDIO_IMAGE_REFERENCE_LIMITS if kind == "audio"
+                  else {"flow": VIDEO_REFERENCE_LIMITS["flow"], "gemini": 4} if kind == "image" else {})
     if target not in limits:
-        raise ValueError("--reference applies to web video, web image flow and web audio muse")
+        raise ValueError("--reference applies to web video, web image flow/gemini/muse and web audio muse")
     limit = limits[target]
     if len(paths) > limit:
         count = "one image reference" if limit == 1 else f"up to {limit} image references"
@@ -144,6 +148,20 @@ def _media_reference_options(kind, target, paths):
     return {"image": references[0]} if target == "grok" else {"references": references}
 
 
+def _muse_file_options(paths):
+    files = []
+    for name in paths:
+        path = Path(name).expanduser().absolute()
+        if not path.is_file():
+            raise ValueError(f"Muse input file not found: {path}")
+        try:
+            validate_muse_media_file(path.suffix.lower(), path.stat().st_size)
+        except ValueError as exc:
+            raise ValueError(f"{path.name}: {exc}") from exc
+        files.append(path)
+    return {"files": files}
+
+
 def _web_media(args):
     from orchestrator import (
         web_chatgpt_image, web_flow, web_flow_music, web_gemini_image, web_gemini_video, web_grok, web_muse, web_muse_video,
@@ -160,12 +178,27 @@ def _web_media(args):
         flow_options = {name: getattr(args, name) for name in FLOW_MEDIA_OPTIONS if getattr(args, name) is not None}
         if "aspect" in flow_options:
             flow_options["aspect_ratio"] = flow_options.pop("aspect")
+        muse_options = {}
+        if target == "muse" and "aspect_ratio" in flow_options and kind in ("image", "video"):
+            muse_options["aspect_ratio"] = flow_options.pop("aspect_ratio")
+        gemini_options = {}
+        if target == "gemini" and kind == "image":
+            if "aspect_ratio" in flow_options:
+                gemini_options["aspect_ratio"] = flow_options.pop("aspect_ratio")
+            if args.chat:
+                gemini_options["chat"] = args.chat
         if flow_options and target != "flow":
             raise ValueError("These generation settings apply to web image or video flow")
         music_options = {name: getattr(args, name) for name in FLOW_MUSIC_OPTIONS if getattr(args, name) is not None}
         if music_options and target != "flow-music":
             raise ValueError("These song settings apply to web audio flow-music")
-        if any((args.chat, args.file, args.repo, args.mode, args.expect)):
+        voice = getattr(args, "voice", None)
+        if voice and not (target == "muse" and kind == "audio"):
+            raise ValueError("--voice applies to web audio muse")
+        if voice:
+            muse_options["voice"] = voice
+            muse_options["tts"] = True
+        if any((args.repo, args.mode, args.expect)) or (args.chat and not (target == "gemini" and kind == "image")) or (args.file and target != "muse"):
             raise ValueError("Chat options apply to web ask. Use --reference for supported media targets")
         prompt = (args.prompt or "").strip()
         if not prompt:
@@ -174,25 +207,29 @@ def _web_media(args):
         if timeout <= 0:
             raise ValueError("--timeout must be positive")
         reference_options = _media_reference_options(kind, target, args.reference) if args.reference else {}
+        file_options = _muse_file_options(args.file) if args.file else {}
         directory = Path(args.out).expanduser().resolve() / f"{target}-{kind}-{uuid4().hex[:12]}"
         directory.mkdir(parents=True, exist_ok=False)
         if kind == "audio":
-            result = audio_drivers[target](prompt, directory, timeout_s=timeout, **reference_options, **music_options)
+            result = audio_drivers[target](prompt, directory, timeout_s=timeout,
+                                           **reference_options, **file_options, **music_options, **muse_options)
         elif target == "flow":
             result = web_flow.generate(kind, prompt, directory, timeout_s=timeout, **reference_options, **flow_options)
         elif target == "grok":
             driver = web_grok.generate_image if kind == "image" else web_grok.generate_video
             result = driver(prompt, download_dir=directory, timeout_s=timeout, **reference_options)
         elif target == "muse" and kind == "image":
-            result = web_muse.generate_image(prompt, directory, timeout_s=timeout)
+            result = web_muse.generate_image(prompt, directory, timeout_s=timeout,
+                                             **reference_options, **file_options, **muse_options)
+        elif target == "muse":
+            result = web_muse_video.generate(prompt, directory, timeout_s=timeout,
+                                             **reference_options, **file_options, **muse_options)
         else:
             if target == "gemini":
                 driver = web_gemini_image if kind == "image" else web_gemini_video
-            elif target == "chatgpt":
-                driver = web_chatgpt_image
             else:
-                driver = web_muse_video
-            result = driver.generate(prompt, directory, timeout_s=timeout, **reference_options)
+                driver = web_chatgpt_image
+            result = driver.generate(prompt, directory, timeout_s=timeout, **reference_options, **gemini_options)
     except (OSError, ValueError) as exc:
         result = {"ok": False, "error": str(exc)}
 
@@ -250,11 +287,69 @@ def _reset_label(window):
     return f"resets {when} (in {approx}{f'{d}d {h}h' if d else f'{h}h {m}m'})"
 
 
+def _web_library(args):
+    """`aao web library|download gemini|muse`: list or download items from Gemini or Muse Library."""
+    from orchestrator import web_gemini_library, web_muse
+
+    if args.target not in ("gemini", "muse") or (args.action == "library" and args.all):
+        print(f"Use aao web {args.action} gemini|muse", file=sys.stderr)
+        return 1
+    driver = web_gemini_library if args.target == "gemini" else web_muse
+    label = "Gemini" if args.target == "gemini" else "Muse"
+    try:
+        if args.action == "library":
+            result = driver.list_library(
+                kind=args.type,
+                limit=args.limit,
+                **({} if args.timeout is None else {"timeout_s": args.timeout}),
+            )
+        else:
+            result = driver.download_library(
+                args.out,
+                items=args.item or (),
+                download_all=args.all,
+                limit=args.limit,
+                **({} if args.timeout is None else {"timeout_s": args.timeout}),
+            )
+    except ValueError as exc:
+        result = {"ok": False, "target": args.target, "reason": str(exc)}
+
+    if args.json:
+        _print(result, True)
+        return 0 if result.get("ok") else 1
+    if not result.get("ok"):
+        print(result.get("reason") or result.get("error") or f"{label} {args.action} failed", file=sys.stderr)
+        return 1
+    if args.action == "library":
+        documents = result.get("documents") or []
+        media = result.get("media") or []
+        if not documents and not media:
+            print(f"No items in {label} Library")
+            return 0
+        if documents:
+            print(f"Documents ({len(documents)}):")
+            for item in documents:
+                date = f"  [{item['date']}]" if item.get("date") else ""
+                extra = f"  {item['url']}" if item.get("url") else ""
+                print(f"  {item['index']:3d}. {item['title']}{date}{extra}")
+        if media:
+            print(f"Media ({len(media)}):")
+            for item in media:
+                print(f"  {item['index']:3d}. [{item['kind']}] {item['title']}")
+        return 0
+
+    for path in result.get("files") or []:
+        print(path)
+    return 0
+
+
 def cmd_web(args):
     from orchestrator import drivers, web
 
     if args.action in ("image", "video", "audio"):
         return _web_media(args)
+    if args.action in ("library", "download"):
+        return _web_library(args)
     if args.reference:
         print("--reference applies to web video, web image flow and web audio muse", file=sys.stderr)
         return 1
@@ -357,7 +452,7 @@ def cmd_chats(args):
         return 1
     kwargs = {
         "list": {"group": getattr(args, "group", None), "status": getattr(args, "status", None)}, "groups": {},
-        "read": {"chat": getattr(args, "chat", None)},
+        "read": {"chat": getattr(args, "chat", None), "group": getattr(args, "group", None)},
         "search": {"query": getattr(args, "query", None), "kind": getattr(args, "kind", None)},
         "pin": {"chat": getattr(args, "chat", None)}, "unpin": {"chat": getattr(args, "chat", None)},
         "move": {"chat": getattr(args, "chat", None), "group": getattr(args, "group", None),
@@ -988,20 +1083,22 @@ def main(argv=None):
 
     p = sub.add_parser("web", help="Chat and media generation through playwright-cli with saved login profiles")
     p.add_argument("action", choices=["login", "status", "ask", "close", "image", "video", "audio", "sessions", "read",
-                                      "quota"],
+                                      "quota", "library", "download"],
                    help="sessions/read: list AutoClaw tasks or read one; close: close kept-open browsers; "
-                        "quota: read the account's usage (muse, flow, gemini)")
+                        "quota: read the account's usage (muse, flow, gemini); "
+                        "library/download: list or download Gemini or Muse Library items")
     p.add_argument("target", nargs="?", help="chatgpt, claude, gemini, grok, muse, flow, flow-music, zai, autoclaw, codex-cloud, claude-code-web")
     p.add_argument("--all", action="store_true")
     p.add_argument("--prompt")
     p.add_argument("--expect", help="regex the reply must match")
     p.add_argument("--chat", help="ask: continue a chat (id, URL or title); AutoClaw ask/read require an exact title")
-    p.add_argument("--file", action="append", help="ask: attach a local file (repeatable; gemini; zip a folder)")
+    p.add_argument("--file", action="append", help="ask: attach a local file; muse media: attach video/audio/image (<=50 MiB)")
     p.add_argument("--reference", "--image", action="append", metavar="IMAGE",
-                   help="video, Flow image and Muse audio: attach a local PNG, JPEG, or WebP (8 MiB each)")
+                   help="video, Flow/Muse image and Muse audio: attach a local PNG, JPEG, or WebP (8 MiB each)")
     p.add_argument("--project", help="Flow: use this project ID, URL or exact title")
     p.add_argument("--model", help="Flow: model name from aao flow options")
-    p.add_argument("--aspect", help="Flow: image or video aspect ratio")
+    p.add_argument("--aspect", help="Flow/Muse: image or video aspect ratio")
+    p.add_argument("--voice", help="Muse audio: generate spoken TTS MP3 directly using this voice")
     p.add_argument("--resolution", help="Flow: video resolution, e.g. 720p")
     p.add_argument("--quality", help="Flow: image quality, or an alias for video resolution")
     p.add_argument("--duration", type=int, help="Flow: video duration in seconds, where available")
@@ -1016,6 +1113,10 @@ def main(argv=None):
     p.add_argument("--song", type=int, help="Flow Music: request versions and download this 1-based result")
     p.add_argument("--repo", help="ask: attach a GitHub repository or branch URL (gemini 'Import code')")
     p.add_argument("--mode", help="ask: composer mode, e.g. gemini chat|task")
+    p.add_argument("--item", action="append", help="download: 1-based media index or title from Gemini library (repeatable)")
+    p.add_argument("--type", choices=["all", "media", "documents"], default="all",
+                   help="library: filter Gemini library items")
+    p.add_argument("--limit", type=int, help="library/download: maximum items to list or download")
     p.add_argument("--timeout", type=int, help="seconds to wait (ask: 120, image/video/audio: 720)")
     p.add_argument("-o", "--out", default="downloads", help="image/video/audio: parent directory for saved media")
     p.add_argument("--json", action="store_true", help="media, quota, or AutoClaw status/sessions/read/ask: print structured results")
@@ -1024,7 +1125,7 @@ def main(argv=None):
     _grok_parser(sub)
 
     p = sub.add_parser("chats", help="chat/session list of a web app: list, search, pin, sections/projects (groups)")
-    p.add_argument("target", help="claude (chats), claude-code-web (Code sessions), chatgpt or grok (projects), gemini (notebooks)")
+    p.add_argument("target", help="claude (chats), claude-code-web (Code sessions), chatgpt or grok (projects), gemini (notebooks), muse (chats)")
     p.add_argument("--json", action="store_true")
     ops = p.add_subparsers(dest="op", required=True)
     alias = {v: [k, next(p for p, g in PROJECT_ALIASES.items() if g == v), next(n for n, g in NOTEBOOK_ALIASES.items() if g == v)]
@@ -1041,7 +1142,10 @@ def main(argv=None):
     for name in ("pin", "unpin"):
         ops.add_parser(name).add_argument("chat", help="id, URL or exact title")
     ops.add_parser("ungroup", aliases=alias["ungroup"], help="take it out of its section").add_argument("chat")
-    ops.add_parser("read", help="gemini: a chat's last prompt, reply and task state").add_argument("chat")
+    o = ops.add_parser("read", help="gemini: a chat's last prompt, reply and task state")
+    o.add_argument("chat")
+    o.add_argument("--group", "--section", "--project", "--notebook", dest="group",
+                   help="gemini: read a chat inside this notebook")
     o = ops.add_parser("move", help="move a chat or session into a section")
     o.add_argument("chat")
     o.add_argument("group", metavar="section")

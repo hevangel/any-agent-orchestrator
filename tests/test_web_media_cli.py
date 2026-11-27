@@ -151,3 +151,24 @@ def test_web_ask_custom_prompt_has_no_implicit_smoke_expectation(monkeypatch):
 
     monkeypatch.setattr(web, "ask", ask)
     assert cli.main(["web", "ask", "gemini", "--prompt", "hello"]) == 0
+
+
+def test_web_image_gemini_passes_references_and_aspect(tmp_path, monkeypatch, capsys):
+    refs = [tmp_path / "sheet.png", tmp_path / "pose.jpg"]
+    refs[0].write_bytes(b"\x89PNG\r\n\x1a\nref")
+    refs[1].write_bytes(b"\xff\xd8\xffref")
+    seen = {}
+
+    def generate(prompt, directory, **options):
+        seen["prompt"] = prompt
+        seen["options"] = options
+        return {"ok": True, "path": str(directory / "out.jpeg")}
+
+    monkeypatch.setattr(web_gemini_image, "generate", generate)
+    assert cli.main(["web", "image", "gemini", "--prompt", "Broadcom", "--reference", str(refs[0]),
+                     "--reference", str(refs[1]), "--aspect", "3:4", "--chat", "abc123def4567890",
+                     "--out", str(tmp_path), "--json"]) == 0
+    assert seen["prompt"] == "Broadcom"
+    assert seen["options"] == {"timeout_s": 720, "references": refs, "aspect_ratio": "3:4",
+                               "chat": "abc123def4567890"}
+    assert json.loads(capsys.readouterr().out)["ok"] is True
