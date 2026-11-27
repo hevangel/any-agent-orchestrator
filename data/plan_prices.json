@@ -9,7 +9,7 @@
    "currency": "USD",
    "effective_from": "2020-01-01",
    "source_url": "https://help.openai.com/en/articles/6950777-what-is-chatgpt-plus",
-   "verified_at": "2026-11-24",
+   "verified_at": "2026-11-27",
    "verified_by": "aao prices plans update (chatgpt-chatgpt_plus)"
   },
   {
@@ -19,7 +19,7 @@
    "currency": "USD",
    "effective_from": "2020-01-01",
    "source_url": "https://help.openai.com/en/articles/9793128-what-is-chatgpt-pro",
-   "verified_at": "2026-11-24",
+   "verified_at": "2026-11-27",
    "verified_by": "aao prices plans update (chatgpt-chatgpt_pro)"
   },
   {
@@ -29,7 +29,7 @@
    "currency": "USD",
    "effective_from": "2020-01-01",
    "source_url": "https://help.openai.com/en/articles/9793128-what-is-chatgpt-pro",
-   "verified_at": "2026-11-24",
+   "verified_at": "2026-11-27",
    "verified_by": "aao prices plans update (chatgpt-chatgpt_pro)"
   },
   {
@@ -39,7 +39,7 @@
    "currency": "USD",
    "effective_from": "2020-01-01",
    "source_url": "https://help.openai.com/en/articles/9793128-what-is-chatgpt-pro",
-   "verified_at": "2026-11-24",
+   "verified_at": "2026-11-27",
    "verified_by": "aao prices plans update (chatgpt-chatgpt_pro)"
   },
   {
@@ -49,7 +49,7 @@
    "currency": "USD",
    "effective_from": "2020-01-01",
    "source_url": "https://claude.com/pricing",
-   "verified_at": "2026-11-24",
+   "verified_at": "2026-11-27",
    "verified_by": "aao prices plans update (claude-claude)"
   },
   {
@@ -59,7 +59,7 @@
    "currency": "USD",
    "effective_from": "2020-01-01",
    "source_url": "https://claude.com/pricing",
-   "verified_at": "2026-11-24",
+   "verified_at": "2026-11-27",
    "verified_by": "aao prices plans update (claude-claude)"
   },
   {
@@ -69,7 +69,7 @@
    "currency": "USD",
    "effective_from": "2020-01-01",
    "source_url": "https://claude.com/pricing",
-   "verified_at": "2026-11-24",
+   "verified_at": "2026-11-27",
    "verified_by": "aao prices plans update (claude-claude)"
   },
   {
@@ -79,7 +79,7 @@
    "currency": "USD",
    "effective_from": "2020-01-01",
    "source_url": "https://claude.com/pricing",
-   "verified_at": "2026-11-24",
+   "verified_at": "2026-11-27",
    "verified_by": "aao prices plans update (claude-claude)"
   },
   {
@@ -89,7 +89,7 @@
    "currency": "USD",
    "effective_from": "2020-01-01",
    "source_url": "https://github.com/features/copilot/plans",
-   "verified_at": "2026-11-24",
+   "verified_at": "2026-11-27",
    "verified_by": "aao prices plans update (copilot-copilot)"
   },
   {
@@ -99,7 +99,7 @@
    "currency": "USD",
    "effective_from": "2020-01-01",
    "source_url": "https://github.com/features/copilot/plans",
-   "verified_at": "2026-11-24",
+   "verified_at": "2026-11-27",
    "verified_by": "aao prices plans update (copilot-copilot)"
   },
   {
@@ -109,7 +109,7 @@
    "currency": "USD",
    "effective_from": "2020-01-01",
    "source_url": "https://github.com/features/copilot/plans",
-   "verified_at": "2026-11-24",
+   "verified_at": "2026-11-27",
    "verified_by": "aao prices plans update (copilot-copilot)"
   },
   {
@@ -119,7 +119,7 @@
    "currency": "USD",
    "effective_from": "2020-01-01",
    "source_url": "https://github.com/features/copilot/plans",
-   "verified_at": "2026-11-24",
+   "verified_at": "2026-11-27",
    "verified_by": "aao prices plans update (copilot-copilot)"
   },
   {
@@ -129,7 +129,7 @@
    "currency": "USD",
    "effective_from": "2020-01-01",
    "source_url": "https://cursor.com/pricing",
-   "verified_at": "2026-11-24",
+   "verified_at": "2026-11-27",
    "verified_by": "aao prices plans update (cursor-cursor)"
   },
   {
@@ -139,7 +139,7 @@
    "currency": "USD",
    "effective_from": "2020-01-01",
    "source_url": "https://cursor.com/pricing",
-   "verified_at": "2026-11-24",
+   "verified_at": "2026-11-27",
    "verified_by": "aao prices plans update (cursor-cursor)"
   },
   {
@@ -149,7 +149,7 @@
    "currency": "USD",
    "effective_from": "2020-01-01",
    "source_url": "https://cursor.com/pricing",
-   "verified_at": "2026-11-24",
+   "verified_at": "2026-11-27",
    "verified_by": "aao prices plans update (cursor-cursor)"
   },
   {
@@ -159,7 +159,7 @@
    "currency": "USD",
    "effective_from": "2020-01-01",
    "source_url": "https://cursor.com/pricing",
-   "verified_at": "2026-11-24",
+   "verified_at": "2026-11-27",
    "verified_by": "aao prices plans update (cursor-cursor)"
   },
   {
@@ -169,8 +169,18 @@
    "currency": "USD",
    "effective_from": "2020-01-01",
    "source_url": "https://cursor.com/pricing",
-   "verified_at": "2026-11-24",
+   "verified_at": "2026-11-27",
    "verified_by": "aao prices plans update (cursor-cursor)"
+  },
+  {
+   "vendor": "google",
+   "plan": "Plus",
+   "monthly": 9.99,
+   "currency": "USD",
+   "effective_from": "2020-01-01",
+   "source_url": "https://one.google.com/about/plans?hl=en-US",
+   "verified_at": "2026-11-27",
+   "verified_by": "aao prices plans update (google-google)"
   },
   {
    "vendor": "google",
@@ -180,6 +190,16 @@
    "effective_from": "2020-01-01",
    "source_url": "https://one.google.com/about/plans?hl=en-US",
    "verified_at": "2026-11-24",
+   "verified_by": "aao prices plans update (google-google)"
+  },
+  {
+   "vendor": "google",
+   "plan": "Pro",
+   "monthly": 19.99,
+   "currency": "USD",
+   "effective_from": "2020-01-01",
+   "source_url": "https://one.google.com/about/plans?hl=en-US",
+   "verified_at": "2026-11-27",
    "verified_by": "aao prices plans update (google-google)"
   },
   {
@@ -199,7 +219,7 @@
    "currency": "USD",
    "effective_from": "2020-01-01",
    "source_url": "https://grok.com/plans",
-   "verified_at": "2026-11-24",
+   "verified_at": "2026-11-27",
    "verified_by": "aao prices plans update (grok-grok)"
   },
   {
@@ -209,7 +229,7 @@
    "currency": "USD",
    "effective_from": "2020-01-01",
    "source_url": "https://grok.com/plans",
-   "verified_at": "2026-11-24",
+   "verified_at": "2026-11-27",
    "verified_by": "aao prices plans update (grok-grok)"
   },
   {
@@ -219,7 +239,7 @@
    "currency": "USD",
    "effective_from": "2020-01-01",
    "source_url": "https://kiro.dev/pricing/",
-   "verified_at": "2026-11-24",
+   "verified_at": "2026-11-27",
    "verified_by": "aao prices plans update (kiro-kiro)"
   },
   {
@@ -229,7 +249,7 @@
    "currency": "USD",
    "effective_from": "2020-01-01",
    "source_url": "https://kiro.dev/pricing/",
-   "verified_at": "2026-11-24",
+   "verified_at": "2026-11-27",
    "verified_by": "aao prices plans update (kiro-kiro)"
   },
   {
@@ -239,7 +259,7 @@
    "currency": "USD",
    "effective_from": "2020-01-01",
    "source_url": "https://kiro.dev/pricing/",
-   "verified_at": "2026-11-24",
+   "verified_at": "2026-11-27",
    "verified_by": "aao prices plans update (kiro-kiro)"
   },
   {
@@ -249,7 +269,7 @@
    "currency": "USD",
    "effective_from": "2020-01-01",
    "source_url": "https://kiro.dev/pricing/",
-   "verified_at": "2026-11-24",
+   "verified_at": "2026-11-27",
    "verified_by": "aao prices plans update (kiro-kiro)"
   },
   {
@@ -259,9 +279,9 @@
    "currency": "USD",
    "effective_from": "2020-01-01",
    "source_url": "https://kiro.dev/pricing/",
-   "verified_at": "2026-11-24",
+   "verified_at": "2026-11-27",
    "verified_by": "aao prices plans update (kiro-kiro)"
   }
  ],
- "updated_at": "2026-11-24"
+ "updated_at": "2026-11-27"
 }
