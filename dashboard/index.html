@@ -40,6 +40,7 @@ main { max-width: 1280px; margin: 0 auto; padding: 0 16px 48px; }
 section[hidden] { display: none; }
 .meta { color: var(--muted); font-size: 12px; }
 .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+.host-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); }
 .card { background: var(--surface); border: 1px solid var(--ring); border-radius: 12px; padding: 14px 16px; min-width: 0; }
 .card h3 { margin: 0 0 2px; font-size: 15px; }
 .card .sub { color: var(--ink-2); font-size: 12px; margin-bottom: 10px; overflow-wrap: anywhere; }
@@ -70,6 +71,18 @@ select { font: inherit; background: var(--surface); color: var(--ink); border: 1
 table { border-collapse: collapse; width: 100%; font-size: 12px; }
 th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
 th { color: var(--ink-2); font-weight: 600; }
+.price-heading { display: flex; align-items: center; gap: 4px; }
+.price-sort, .price-filter { font: inherit; color: inherit; background: transparent; border: 0; cursor: pointer; border-radius: 4px; }
+.price-sort { flex: 1; text-align: inherit; padding: 6px 0; white-space: nowrap; }
+.price-filter { padding: 4px; display: inline-flex; align-items: center; }
+.price-filter svg { width: 14px; height: 14px; }
+.price-filter[aria-pressed="true"] { color: var(--s1); background: var(--seq-track); }
+.price-sort:hover, .price-filter:hover { background: var(--seq-track); }
+.price-filter-menu { position: fixed; inset: auto; margin: 0; width: min(280px, calc(100vw - 24px)); padding: 12px; border: 1px solid var(--ring); border-radius: 8px; background: var(--surface); color: var(--ink); box-shadow: 0 6px 24px var(--ring); font: inherit; }
+.price-filter-menu input[type="search"] { width: 100%; margin: 10px 0; padding: 6px 8px; border: 1px solid var(--ring); border-radius: 4px; background: var(--page); color: var(--ink); font: inherit; }
+.price-filter-menu label { display: flex; align-items: center; gap: 6px; padding: 4px 0; overflow-wrap: anywhere; }
+.price-filter-values { max-height: 220px; overflow-y: auto; margin: 6px 0 10px; border-top: 1px solid var(--ring); }
+.price-filter-actions { display: flex; justify-content: space-between; gap: 8px; }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 td.wrap { white-space: normal; overflow-wrap: anywhere; min-width: 160px; }
 a { color: var(--s1); }
@@ -112,8 +125,8 @@ details summary { cursor: pointer; color: var(--ink-2); font-size: 12px; margin-
     <button data-tab="quotas">Quotas</button>
     <button data-tab="usage">Tokens &amp; cost</button>
     <button data-tab="free">Free tokens</button>
-    <button data-tab="prices">Price</button>
-    <button class="btn" id="refresh" title="Run collectors now">Refresh</button>
+    <button data-tab="prices">API prices</button>
+    <button class="btn" id="refresh" title="Run collectors now" aria-label="Refresh"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:middle"><path d="M20 7v5h-5M4 17v-5h5M6.1 7a7 7 0 0 1 11.6-1L20 9M4 15l2.3 3A7 7 0 0 0 17.9 17"/></svg></button>
     <button class="btn" id="theme" title="Toggle light/dark">◐</button>
   </nav>
 </header>
@@ -263,13 +276,16 @@ function renderProjects(data) {
 function renderMachines(data) {
   const sec = $("#tab-machines");
   if (!data || data.missing) return missing(sec, "machine", "uv run aao collect machines");
-  const groups = { local: "This computer", ssh: "SSH machines (herdr)", cloud: "Cloud agents (AI labs)" };
   const out = [];
-  for (const [cls, title] of Object.entries(groups)) {
-    const ms = data.machines.filter(m => m.class === cls);
-    if (!ms.length) continue;
-    out.push(h("div", { class: "class-title" }, title));
-    out.push(h("div", { class: "grid" }, ms.map(cls === "cloud" ? cloudCard : hostCard)));
+  const hosts = ["local", "ssh"].flatMap(cls => data.machines.filter(m => m.class === cls));
+  if (hosts.length) {
+    out.push(h("div", { class: "class-title" }, "This computer & SSH machines (herdr)"));
+    out.push(h("div", { class: "grid host-grid" }, hosts.map(hostCard)));
+  }
+  const cloud = data.machines.filter(m => m.class === "cloud");
+  if (cloud.length) {
+    out.push(h("div", { class: "class-title" }, "Cloud agents (AI labs)"));
+    out.push(h("div", { class: "grid" }, cloud.map(cloudCard)));
   }
   if (data.herdr_error) out.push(h("p", { class: "err" }, "herdr: " + data.herdr_error));
   fill(sec, ...out);
@@ -589,19 +605,109 @@ function renderFree(data) {
 }
 
 /* ------------------------------------------------------------------ prices */
+const priceColumns = [
+  ["model", "Model"], ["provider", "Provider"], ["input", "Input", true],
+  ["cache_write_5m", "Cache write 5m", true], ["cache_write_1h", "Cache write 1h", true],
+  ["cache_read", "Cache read", true], ["output", "Output", true],
+  ["effective_from", "From"], ["verified_at", "Verified"]
+].map(([key, label, numeric = false]) => ({ key, label, numeric }));
+const priceState = { sort: null, direction: 1, filters: new Map() };
+let priceData, priceFilterMenu;
+const priceValue = (m, c) => (c.numeric ? m.prices[c.key] : m[c.key]) ?? null;
+const priceKey = (m, c) => String(priceValue(m, c) ?? "");
+const priceMoney = v => v == null ? "—" : "$" + (v < 1 ? v.toFixed(3) : v.toFixed(2));
+function closePriceFilter() {
+  if (priceFilterMenu) { priceFilterMenu.remove(); priceFilterMenu = null; }
+}
+function openPriceFilter(c, button) {
+  closePriceFilter();
+  const values = [...new Set(priceData.models.map(m => priceKey(m, c)))].sort((a, b) =>
+    a === "" ? 1 : b === "" ? -1 : c.numeric ? Number(a) - Number(b) : a.localeCompare(b, undefined, { numeric: true }));
+  const selected = new Set(priceState.filters.get(c.key) ?? values);
+  const search = h("input", { type: "search", placeholder: "Search values…", "aria-label": `Search ${c.label} values` });
+  const list = h("div", { class: "price-filter-values" });
+  const all = h("input", { type: "checkbox" });
+  const visibleValues = () => values.filter(v => (v === "" ? "(Blanks)" : c.numeric ? priceMoney(Number(v)) : v).toLowerCase().includes(search.value.toLowerCase()));
+  function updateAll() {
+    const visible = visibleValues(), count = visible.filter(v => selected.has(v)).length;
+    all.checked = visible.length > 0 && count === visible.length;
+    all.indeterminate = count > 0 && count < visible.length;
+  }
+  function draw() {
+    const visible = visibleValues();
+    list.replaceChildren(...visible.map(v => h("label", {}, h("input", {
+      type: "checkbox", checked: selected.has(v), onchange: ev => {
+        if (ev.target.checked) selected.add(v); else selected.delete(v);
+        updateAll();
+      }
+    }), v === "" ? "(Blanks)" : c.numeric ? priceMoney(Number(v)) : v)));
+    if (!visible.length) list.append(h("p", { class: "meta" }, "No matching values."));
+    updateAll();
+  }
+  all.addEventListener("change", () => {
+    for (const v of visibleValues()) { if (all.checked) selected.add(v); else selected.delete(v); }
+    draw();
+  });
+  search.addEventListener("input", draw);
+  const apply = () => {
+    if (values.every(v => selected.has(v))) priceState.filters.delete(c.key);
+    else priceState.filters.set(c.key, selected);
+    closePriceFilter(); renderPrices(priceData);
+    $(`#tab-prices [data-price-filter="${c.key}"]`)?.focus();
+  };
+  const menu = h("div", { class: "price-filter-menu", popover: "auto", role: "dialog", "aria-label": `Filter ${c.label}` },
+    h("strong", {}, `Filter ${c.label}`), search, h("label", {}, all, "Select all"), list,
+    h("div", { class: "price-filter-actions" },
+      h("button", { class: "btn", onclick: () => { priceState.filters.delete(c.key); closePriceFilter(); renderPrices(priceData); $(`#tab-prices [data-price-filter="${c.key}"]`)?.focus(); } }, "Clear filter"),
+      h("button", { class: "btn", onclick: apply }, "Apply")));
+  priceFilterMenu = menu;
+  document.body.append(menu);
+  draw();
+  menu.showPopover();
+  const rect = button.getBoundingClientRect();
+  menu.style.left = Math.max(12, Math.min(rect.right - menu.offsetWidth, innerWidth - menu.offsetWidth - 12)) + "px";
+  menu.style.top = Math.max(12, Math.min(rect.bottom + 4, innerHeight - menu.offsetHeight - 12)) + "px";
+  menu.addEventListener("toggle", ev => { if (ev.newState === "closed") { menu.remove(); if (priceFilterMenu === menu) priceFilterMenu = null; } });
+  search.addEventListener("keydown", ev => { if (ev.key === "Enter") apply(); });
+  search.focus();
+}
+function priceHeader(c) {
+  const sorted = priceState.sort === c.key, filtered = priceState.filters.has(c.key);
+  const icon = s("svg", { viewBox: "0 0 16 16", "aria-hidden": "true", fill: "currentColor" });
+  icon.append(s("path", { d: "M1 2h14L9.5 8v5l-3 1V8z" }));
+  return h("th", { scope: "col", class: c.numeric ? "num" : null, "aria-sort": sorted ? (priceState.direction === 1 ? "ascending" : "descending") : "none" },
+    h("div", { class: "price-heading" },
+      h("button", { class: "price-sort", title: `Sort ${c.label} ${sorted && priceState.direction === 1 ? "descending" : "ascending"}`, onclick: () => {
+        closePriceFilter();
+        priceState.direction = sorted ? -priceState.direction : 1;
+        priceState.sort = c.key; renderPrices(priceData);
+        $(`#tab-prices [data-price-filter="${c.key}"]`)?.previousElementSibling.focus();
+      } }, c.label, sorted ? (priceState.direction === 1 ? " ↑" : " ↓") : ""),
+      h("button", { class: "price-filter", "data-price-filter": c.key, "aria-label": `Filter ${c.label}`, "aria-haspopup": "dialog", "aria-pressed": String(filtered), title: `Filter ${c.label}${filtered ? " (active)" : ""}`, onclick: ev => openPriceFilter(c, ev.currentTarget) }, icon)));
+}
 function renderPrices(data) {
   const sec = $("#tab-prices");
   if (!data || data.missing) return missing(sec, "price", "data/api_prices.json");
-  const p = v => v == null ? "—" : "$" + (v < 1 ? v.toFixed(3) : v.toFixed(2));
   const plans = data.plans;
-  fill(sec,
+  priceData = data;
+  const rows = data.models.filter(m => priceColumns.every(c => !priceState.filters.has(c.key) || priceState.filters.get(c.key).has(priceKey(m, c))));
+  const column = priceColumns.find(c => c.key === priceState.sort);
+  if (column) rows.sort((a, b) => {
+    const av = priceValue(a, column), bv = priceValue(b, column);
+    if (av == null || bv == null) return av == null ? (bv == null ? 0 : 1) : -1;
+    return priceState.direction * (column.numeric ? av - bv : String(av).localeCompare(String(bv), undefined, { numeric: true }));
+  });
+  fill(sec, 
     h("h2", { class: "class-title", style: "margin-top:4px" }, "API price"),
     h("p", { class: "meta" }, `USD per 1M tokens, updated ${data.updated_at}. Models not listed are priced from the LiteLLM snapshot (aao prices sync).`),
+    h("div", { class: "filters" }, h("span", { class: "meta" }, `${rows.length} of ${data.models.length} prices`),
+      priceState.filters.size ? h("button", { class: "btn", onclick: () => { closePriceFilter(); priceState.filters.clear(); renderPrices(priceData); } }, "Clear all filters") : null),
     h("div", { class: "card table-wrap" }, h("table", {},
-      h("tr", {}, ...["Model", "Provider", "Input", "Cache write 5m", "Cache write 1h", "Cache read", "Output", "From", "Verified"].map((t, i) => h("th", { class: i >= 2 && i <= 6 ? "num" : null }, t))),
-      data.models.map(m => h("tr", {}, h("td", {}, m.model, m.aliases ? h("span", { class: "meta" }, " = " + m.aliases.join(", ")) : ""), h("td", {}, m.provider),
-        ...["input", "cache_write_5m", "cache_write_1h", "cache_read", "output"].map(k => h("td", { class: "num" }, p(m.prices[k]))),
-        h("td", {}, m.effective_from), h("td", {}, h("a", { href: m.source_url, target: "_blank", rel: "noopener" }, m.verified_at)))))),
+      h("thead", {}, h("tr", {}, ...priceColumns.map(priceHeader))),
+      h("tbody", {}, rows.map(m => h("tr", {}, h("td", {}, m.model, m.aliases ? h("span", { class: "meta" }, " = " + m.aliases.join(", ")) : ""), h("td", {}, m.provider),
+        ...["input", "cache_write_5m", "cache_write_1h", "cache_read", "output"].map(k => h("td", { class: "num" }, priceMoney(m.prices[k]))),
+        h("td", {}, m.effective_from), h("td", {}, h("a", { href: m.source_url, target: "_blank", rel: "noopener" }, m.verified_at))))))),
+    !rows.length ? h("p", { class: "empty" }, "No prices match these filters.") : null,
     h("h2", { class: "class-title" }, "Plan price"),
     !plans || plans.missing ? h("p", { class: "empty" }, "No plan prices yet: run uv run aao prices plans update.")
       : [h("p", { class: "meta" }, `Monthly price of each individual subscription plan, from its official pricing page (aao prices plans update), updated ${plans.updated_at}. Prices are in the currency the page showed; a changed price is a new row. The Quotas tab values each account's unused share with its plan's price.`),
@@ -620,6 +726,7 @@ async function load() {
   $("#updated").textContent = "Updated " + new Date().toLocaleTimeString() + " · auto-refresh every 30 s";
 }
 document.querySelectorAll("nav [data-tab]").forEach(b => b.addEventListener("click", () => {
+  closePriceFilter();
   document.querySelectorAll("nav [data-tab]").forEach(x => x.setAttribute("aria-selected", x === b));
   document.querySelectorAll("main section").forEach(x => { x.hidden = x.id !== "tab-" + b.dataset.tab; });
   try { localStorage.setItem("aao-tab", b.dataset.tab); } catch {}
